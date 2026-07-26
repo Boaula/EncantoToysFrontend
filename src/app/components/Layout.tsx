@@ -1,13 +1,47 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import { useEffect } from "react";
-import { LayoutDashboard, ShoppingCart, Sparkles, Home, Package } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { LayoutDashboard, ShoppingCart, Home, Package, LogOut, Users } from "lucide-react";
 import logoEncanto from "../../assets/EncantoToys.png";
+import { pdvService } from "../../services/api";
 
 import { Button } from "./ui/button";
 
 export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
+
+  const username = localStorage.getItem("@EncantoToys:username") || "Admin";
+  const cargo = localStorage.getItem("@EncantoToys:cargo") || "OPERADOR";
+
+  const handleLogout = async () => {
+    try {
+      // 1. Descobre o nome da máquina atual usando o método nativo/core do Tauri
+      let nomeDaMaquina = "MHS_WEB"; // Fallback padrão caso esteja no navegador
+      
+      const isTauri = typeof window !== "undefined" && (("__TAURI_INTERNALS__" in window) || ("__TAURI__" in window));
+      
+      if (isTauri) {
+        const { invoke } = await import("@tauri-apps/api/core");
+        nomeDaMaquina = await invoke<string>("plugin:os|hostname");
+      }
+
+      // 2. Avisa o backend (FastAPI) para mudar o status do caixa para FECHADO
+      await pdvService.fecharOperacao(nomeDaMaquina);
+      console.log(`Caixa fechado com sucesso para a máquina: ${nomeDaMaquina}`);
+
+    } catch (err) {
+      // Se a rede falhar ou der erro, logamos no console para não travar a UI do usuário
+      console.error("Erro ao fechar o caixa automaticamente no logout:", err);
+    } finally {
+      // 3. Independentemente de ter dado certo ou errado a API, limpa os dados locais e desloga
+      localStorage.removeItem("@EncantoToys:token");
+      localStorage.removeItem("@EncantoToys:cargo");
+      localStorage.removeItem("@EncantoToys:username");
+      
+      navigate("/"); // Redireciona para a tela de login
+    }
+  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -45,7 +79,7 @@ export function Layout() {
 
         <nav className="flex-1 p-4 space-y-2">
           <Link to="/">
-            <Button variant="ghost" className="w-full justify-start gap-3">
+            <Button variant={isActive("/") ? "default" : "ghost"} className="w-full justify-start gap-3">
               <Home className="w-5 h-5" />
               Início
             </Button>
@@ -78,13 +112,39 @@ export function Layout() {
               Estoque
             </Button>
           </Link>
+
+          {cargo === "ADMIN" && (
+            <Link to="/admin">
+              <Button
+                variant={isActive("/admin") ? "default" : "ghost"}
+                className="w-full justify-start gap-3 border border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10"
+              >
+                <Users className="w-5 h-5 text-primary" />
+                <span className="font-bold text-primary">Painel Admin</span>
+              </Button>
+            </Link>
+          )}
         </nav>
 
-        <div className="p-4 border-t border-sidebar-border">
+        <div className="p-4 border-t border-sidebar-border flex flex-col gap-3">
           <div className="text-xs text-muted-foreground space-y-1">
-            <p>Operador: Admin</p>
+            <p>
+              Operador: <span className="capitalize font-semibold text-foreground">{username}</span>
+            </p>
+            <p className="text-[10px] tracking-wider uppercase font-medium text-muted-foreground/70">
+              Nível: {cargo}
+            </p>
             <p>Caixa 01 - Aberto</p>
           </div>
+
+          <Button 
+            variant="ghost" 
+            onClick={handleLogout}
+            className="w-full justify-start gap-3 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 font-semibold cursor-pointer"
+          >
+            <LogOut className="w-5 h-5 text-red-500" />
+            Sair do Sistema
+          </Button>
         </div>
       </aside>
 

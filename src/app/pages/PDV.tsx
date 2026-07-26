@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
+import { TagIdentificadoraPDV } from "../components/TagIdentificadoraPDV";
 import { products, type Product, type CartItem } from "../data/mockData";
 import { Search, X, CreditCard, Banknote, Smartphone, Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+
 
 export function PDV() {
   const [search, setSearch] = useState("");
@@ -15,6 +18,7 @@ export function PDV() {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   // Focus search on mount
   useEffect(() => {
@@ -114,12 +118,16 @@ export function PDV() {
   };
 
   const handlePayment = (method: string) => {
-    toast.success(`Venda finalizada - ${method}`, {
-      description: `Total: R$ ${getTotal().toFixed(2).replace('.', ',')}`,
+  // Redireciona para a rota '/checkout' levando os dados do carrinho
+    navigate("/checkout", {
+      state: {
+        cart,
+        total: getTotal(),
+        paymentMethod: method,
+      },
     });
-    setCart([]);
+
     setShowPaymentDialog(false);
-    searchInputRef.current?.focus();
   };
 
   const getTotal = () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -140,6 +148,7 @@ export function PDV() {
             <p className="text-lg font-medium">{new Date().toLocaleTimeString('pt-BR')}</p>
           </div>
         </div>
+        <TagIdentificadoraPDV />
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 overflow-hidden">

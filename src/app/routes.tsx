@@ -4,6 +4,8 @@ import { Dashboard } from "./pages/Dashboard";
 import { PDV } from "./pages/PDV";
 import { Home } from "./pages/Home";
 import { GestaoEstoque } from "./pages/GestaoEstoque";
+import { AdminPanel } from "./pages/AdminPanel";
+import { CheckoutPDV } from "./pages/CheckoutPDV";
 
 export const router = createBrowserRouter([
   { path: "/", Component: Home },
@@ -14,6 +16,8 @@ export const router = createBrowserRouter([
       { path: "pdv", Component: PDV },
       { path: "dashboard", Component: Dashboard },
       { path: "gestao-estoque", Component: GestaoEstoque },
+      { path: "admin", Component: AdminPanel },
+      { path: "checkout", Component: CheckoutPDV },
     ],
   },
 ]);

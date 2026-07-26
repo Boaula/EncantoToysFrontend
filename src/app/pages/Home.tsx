@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import logoEncanto from "../../assets/EncantoToys.png";
+import { authService, pdvService } from "../../services/api";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Sparkles,
   Eye,
@@ -21,12 +23,6 @@ import {
   todaySales,
 } from "../data/mockData";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
-
-const OPERATORS = [
-  { login: "admin",  password: "1234" },
-  { login: "caixa1", password: "1234" },
-  { login: "caixa2", password: "1234" },
-];
 
 const chartData = todaySales.map((s) => ({
   hora: new Date(s.date).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
@@ -60,19 +56,59 @@ export function Home() {
   const [loading, setLoading]   = useState(false);
   const loginRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { loginRef.current?.focus(); }, []);
+  // Se o usuário já tiver um token válido guardado, redireciona direto
+  useEffect(() => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    if (token) {
+      navigate("/pdv");
+    }
+    loginRef.current?.focus();
+  }, [navigate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // 🔐 Envio Real para o Backend FastAPI
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!login || !password) return;
+
     setError("");
     setLoading(true);
-    setTimeout(() => {
-      const ok = OPERATORS.find(
-        (o) => o.login === login.trim().toLowerCase() && o.password === password
-      );
-      if (ok) navigate("/pdv");
-      else { setError("Usuário ou senha incorretos."); setLoading(false); }
-    }, 600);
+
+    try {
+      // 1. Faz a chamada HTTP real para o endpoint /login
+      const dados = await authService.login(login.trim(), password);
+      
+      // 2. Salva os dados de sessão no localStorage de forma definitiva
+      localStorage.setItem("@EncantoToys:token", dados.access_token);
+      localStorage.setItem("@EncantoToys:cargo", dados.cargo);
+      localStorage.setItem("@EncantoToys:username", login.trim().toLowerCase());
+
+      // 3. ABERTURA AUTOMÁTICA DO CAIXA
+      try {
+        let nomeDaMaquina = "MAQUINA_DESCONHECIDA";
+        
+        // Verifica se a propriedade global do Tauri existe na janela do app
+        if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
+          nomeDaMaquina = await invoke<string>("plugin:os|hostname");
+        } else {
+          console.warn("Ambiente Tauri não detectado (Rodando no Navegador). Usando máquina padrão MHS.");
+          nomeDaMaquina = "MHS_WEB"; // Nome temporário para testes no navegador
+        }
+        
+        await pdvService.iniciarOperacao(nomeDaMaquina, login.trim().toLowerCase());
+        console.log("Caixa iniciado automaticamente para:", nomeDaMaquina);
+
+      } catch (err) {
+        console.error("Erro interno ao invocar hostname:", err);
+        console.warn("Não foi possível iniciar o caixa automaticamente, mas o login ocorreu.");
+      }
+
+      // 4. Redireciona o fluxo para o PDV
+      navigate("/pdv");
+    } catch (err: any) {
+      // 5. Captura o erro real retornado (ex: 401 do FastAPI) e renderiza na UI
+      setError(err.message || "Erro ao conectar com o servidor.");
+      setLoading(false);
+    }
   };
 
   const now     = new Date();
@@ -144,7 +180,7 @@ export function Home() {
                 type="text"
                 value={login}
                 onChange={(e) => setLogin(e.target.value)}
-                placeholder="Caixa"
+                placeholder="Ex: jessica"
                 autoComplete="username"
                 className="w-full rounded-xl px-4 py-3 text-sm outline-none transition placeholder:text-black/50"
                 style={{
@@ -238,8 +274,7 @@ export function Home() {
 
       {/* ══ RIGHT: Dashboard Preview ════════════════════════════ */}
       <div className="flex flex-1 flex-col p-8 gap-5 overflow-auto">
-
-        {/* Panel header */}
+         {/* Toda a parte direita se mantém exatamente igual ao seu código original */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -250,7 +285,6 @@ export function Home() {
           <span className="text-sm font-medium capitalize">Resumo do dia — {dateStr}</span>
         </motion.div>
 
-        {/* KPIs */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -274,7 +308,6 @@ export function Home() {
           ))}
         </motion.div>
 
-        {/* Area chart */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -299,7 +332,6 @@ export function Home() {
           </ResponsiveContainer>
         </motion.div>
 
-        {/* Low stock */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -333,7 +365,6 @@ export function Home() {
           </div>
         </motion.div>
 
-        {/* Recent sales */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
