@@ -103,15 +103,17 @@ export function Layout() {
             </Button>
           </Link>
 
-          <Link to="/gestao-estoque">
-            <Button
-              variant={isActive("/gestao-estoque") ? "default" : "ghost"}
-              className="w-full justify-start gap-3"
-            >
-              <Package className="w-5 h-5" />
-              Estoque
-            </Button>
-          </Link>
+          {cargo === "ADMIN" && (
+            <Link to="/gestao-estoque">
+              <Button
+                variant={isActive("/gestao-estoque") ? "default" : "ghost"}
+                className="w-full justify-start gap-3 border border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10"
+              >
+                <Users className="w-5 h-5 text-primary" />
+                <span className="font-bold text-primary">Estoque</span>
+              </Button>
+            </Link>
+          )}
 
           {cargo === "ADMIN" && (
             <Link to="/admin">

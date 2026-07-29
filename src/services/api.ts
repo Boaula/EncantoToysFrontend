@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 // --- INTERFACES DO PDV ---
 export interface Product {
@@ -10,20 +10,31 @@ export interface Product {
   stock: number;
 }
 
+// Objeto que o cadastro espera receber
+export interface ProdutoPayload {
+  codigo_barras: string;
+  tipo_codigo?: string;
+  nome_produto: string;
+  preco_venda: number;
+  quantidade_estoque: number;
+  categoria?: string;
+}
+
 export interface CartItem extends Product {
   quantity: number;
 }
 
 export interface ItemVendaPayload {
-  product_id: number;
-  quantity: number;
-  price: number;
+  produto_id: number;
+  quantidade: number;
+  preco_unitario: number;
 }
 
 export interface VendaPayload {
-  usuario_id: number;
-  caixa_id: number;
+  usuario_id?: number;
+  caixa_id?: number;
   forma_pagamento: string;
+  valor_total: number;
   itens: ItemVendaPayload[];
 }
 
@@ -37,9 +48,6 @@ export interface TokenResponse {
 // SERVIÇO DE AUTENTICAÇÃO
 // ==========================================
 export const authService = {
-  /**
-   * Realiza a autenticação do usuário no backend FastAPI
-   */
   async login(username: string, senha: string): Promise<TokenResponse> {
     const url = `${API_URL}/login`;
     
@@ -70,9 +78,6 @@ export const authService = {
 // SERVIÇO DE ADMINISTRAÇÃO
 // ==========================================
 export const adminService = {
-  /**
-   * Envia os dados do novo funcionário para o endpoint /admin/cadastrar-operador
-   */
   async cadastrarOperador(username: string, senha: string, cargo: string): Promise<any> {
     const url = `${API_URL}/admin/cadastrar-operador`;
     const token = localStorage.getItem("@EncantoToys:token");
@@ -98,7 +103,6 @@ export const adminService = {
     return response.json();
   },
 
-  // 1. Busca todos os computadores cadastrados para o Painel Admin
   listarCaixas: async () => {
     const token = localStorage.getItem("@EncantoToys:token");
     const response = await fetch(`${API_URL}/admin/caixas`, {
@@ -111,7 +115,6 @@ export const adminService = {
     return response.json();
   },
 
-  // 2. Atualiza a Tag/Nome que a Jéssica definiu
   atualizarTagCaixa: async (id: number, tag_nome: string) => {
     const token = localStorage.getItem("@EncantoToys:token");
     const response = await fetch(`${API_URL}/admin/caixas/${id}`, {
@@ -131,7 +134,6 @@ export const adminService = {
 // SERVIÇO DO PONTO DE VENDA (PDV)
 // ==========================================
 export const pdvService = {
-  // 3. Rota para a máquina se identificar automaticamente ao ligar
   identificarMaquina: async (hostname: string) => {
     const response = await fetch(`${API_URL}/pdv/identificar`, {
       method: "POST",
@@ -149,7 +151,6 @@ export const pdvService = {
     return response.json();
   },
 
-  // Função para abrir o caixa
   iniciarOperacao: async (hostname: string, username: string) => {
     const response = await fetch(`${API_URL}/pdv/iniciar-operacao`, {
       method: "POST",
@@ -162,7 +163,6 @@ export const pdvService = {
     return await response.json();
   },
 
-  // Função para fechar o caixa ao deslogar
   fecharOperacao: async (hostname: string) => {
     const response = await fetch(`${API_URL}/pdv/fechar-operacao`, {
       method: "POST",
@@ -177,7 +177,6 @@ export const pdvService = {
     return await response.json();
   },
 
-  // 🟢 4. BUSCAR/LISTAR PRODUTOS (Para o PDV)
   buscarProdutos: async (searchQuery: string = ""): Promise<Product[]> => {
     const token = localStorage.getItem("@EncantoToys:token");
     const url = searchQuery.trim()
@@ -198,10 +197,10 @@ export const pdvService = {
     return response.json();
   },
 
-  // 🟢 5. FINALIZAR VENDA (POST /vendas/sync)
+// 🟢 REGISTRAR VENDA (Com tratamento correto de erro 422)
   registrarVenda: async (payload: VendaPayload) => {
     const token = localStorage.getItem("@EncantoToys:token");
-    const response = await fetch(`${API_URL}/vendas/sync`, {
+    const response = await fetch(`${API_URL}/vendas/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -212,9 +211,61 @@ export const pdvService = {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+
+      if (Array.isArray(errorData.detail)) {
+        const mensagens = errorData.detail
+          .map((err: any) => `${err.loc.join('.')}: ${err.msg}`)
+          .join(" | ");
+        throw new Error(`Validação Backend: ${mensagens}`);
+      }
+
       throw new Error(errorData.detail || "Erro ao registrar venda.");
     }
 
     return response.json();
+  },
+
+  cadastrarProduto: async (produto: ProdutoPayload) => {
+    const response = await fetch("http://localhost:8000/produtos/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(produto),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Erro ao cadastrar produto.");
+    }
+
+    return await response.json();
+  },
+
+  atualizarProduto: async (id: number, produto: ProdutoPayload) => {
+    const response = await fetch(`http://localhost:8000/produtos/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(produto),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Erro ao atualizar produto.");
+    }
+
+    return await response.json();
+  },
+
+  deletarProduto: async (id: number) => {
+    const response = await fetch(`http://localhost:8000/produtos/${id}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      throw new Error("Erro ao excluir produto.");
+    }
+
+    return true;
   },
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { UserPlus, Shield, AlertCircle, CheckCircle2, Monitor, Edit2, Check, RefreshCw } from "lucide-react";
-import { adminService } from "../../services/api"; 
+import { adminService } from "../../services/api"; // 👈 Garanta o import correto do seu cliente Axios/Fetch
 
 // 1. Definição da Interface
 interface Caixa {

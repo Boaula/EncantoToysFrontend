@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { TagIdentificadoraPDV } from "../components/TagIdentificadoraPDV";
-import { products, type Product, type CartItem } from "../data/mockData";
+import { pdvService, type Product, type CartItem } from "../../services/api";
 import { Search, X, CreditCard, Banknote, Smartphone, Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 export function PDV() {
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [productsList, setProductsList] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -25,20 +26,23 @@ export function PDV() {
     searchInputRef.current?.focus();
   }, []);
 
-  // Filter products based on search
+  // Busca produtos na API FastAPI
   useEffect(() => {
-    if (search.trim()) {
-      const searchLower = search.toLowerCase();
-      const filtered = products.filter(
-        (p) =>
-          p.name.toLowerCase().includes(searchLower) ||
-          p.barcode.includes(search) ||
-          p.category.toLowerCase().includes(searchLower)
-      );
-      setFilteredProducts(filtered.slice(0, 8));
-    } else {
-      setFilteredProducts([]);
-    }
+    const carregarProdutos = async () => {
+      try {
+        const dados = await pdvService.buscarProdutos(search);
+        if (search.trim()) {
+          setFilteredProducts(dados);
+        } else {
+          setProductsList(dados);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar produtos:", error);
+      }
+    };
+
+    const timer = setTimeout(carregarProdutos, 300);
+    return () => clearTimeout(timer);
   }, [search]);
 
   // Keyboard shortcuts
@@ -90,7 +94,7 @@ export function PDV() {
     searchInputRef.current?.focus();
   };
 
-  const updateQuantity = (productId: string, delta: number) => {
+  const updateQuantity = (productId: number, delta: number) => {
     setCart(cart.map((item) => {
       if (item.id === productId) {
         const newQuantity = item.quantity + delta;
@@ -105,7 +109,7 @@ export function PDV() {
     }));
   };
 
-  const removeFromCart = (productId: string) => {
+  const removeFromCart = (productId: number) => {
     setCart(cart.filter((item) => item.id !== productId));
     toast.info("Item removido");
   };
@@ -118,16 +122,18 @@ export function PDV() {
   };
 
   const handlePayment = (method: string) => {
-  // Redireciona para a rota '/checkout' levando os dados do carrinho
+    if (cart.length === 0) return;
+
+    setShowPaymentDialog(false);
+
+    // Navega para a tela de checkout passando os dados do estado
     navigate("/checkout", {
       state: {
-        cart,
+        cart: cart,
         total: getTotal(),
         paymentMethod: method,
       },
     });
-
-    setShowPaymentDialog(false);
   };
 
   const getTotal = () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -192,7 +198,7 @@ export function PDV() {
             </CardHeader>
             <CardContent className="flex-1 overflow-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {(search ? filteredProducts : products.slice(0, 12)).map((product) => (
+                {(search ? filteredProducts : productsList).map((product) => (
                   <button
                     key={product.id}
                     onClick={() => addToCart(product)}
@@ -202,7 +208,7 @@ export function PDV() {
                       <h4 className="font-medium text-foreground group-hover:text-primary transition-colors">
                         {product.name}
                       </h4>
-                      <Badge variant={product.stock <= 10 ? "destructive" : "secondary"} className="ml-2">
+                      <Badge variant={product.stock <= 5 ? "destructive" : "secondary"} className="ml-2">
                         {product.stock} un
                       </Badge>
                     </div>
