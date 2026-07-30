@@ -66,19 +66,20 @@ export function CadastroProduto() {
   };
 
   // Função para auto-gerar um código de barras interno único (Inicia com '200' + 10 dígitos)
-const gerarCodigoInterno = () => {
-    const prefixo = "200";
-    const aleatorio = Math.floor(Math.random() * 1000000000).toString().padStart(9, "0");
-    const codigoGerado = `${prefixo}${aleatorio}`;
+    const gerarCodigoInterno = () => {
+        const prefixo = "200";
+        // Pega os últimos 9 dígitos do timestamp atual (em milissegundos)
+        const timestamp = Date.now().toString().slice(-9); 
+        const codigoGerado = `${prefixo}${timestamp}`;
 
-    setFormData((prev) => ({
-        ...prev,
-        codigo_barras: codigoGerado,
-        tipo_codigo: "INTERNO", // Já muda o tipo automaticamente para INTERNO
-    }));
+        setFormData((prev) => ({
+            ...prev,
+            codigo_barras: codigoGerado,
+            tipo_codigo: "INTERNO",
+        }));
 
-    toast.info("Código interno gerado!");
-};
+        toast.info("Código interno único gerado!");
+    };
 
   return (
     <div className="p-4 max-w-3xl mx-auto space-y-3">

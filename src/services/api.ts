@@ -179,9 +179,10 @@ export const pdvService = {
 
   buscarProdutos: async (searchQuery: string = ""): Promise<Product[]> => {
     const token = localStorage.getItem("@EncantoToys:token");
+    
     const url = searchQuery.trim()
-      ? `${API_URL}/produtos?search=${encodeURIComponent(searchQuery)}`
-      : `${API_URL}/produtos?limit=12`;
+      ? `${API_URL}/produtos?busca=${encodeURIComponent(searchQuery)}`
+      : `${API_URL}/produtos`;
 
     const response = await fetch(url, {
       method: "GET",

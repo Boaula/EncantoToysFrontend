@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { CardHistoricoFlutuante } from "../components/CardHistoricoFlutuante";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -45,34 +46,43 @@ export function PDV() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Keyboard shortcuts
+
+  // ⌨️ Keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // F2: Focus search
-      if (e.key === "F2") {
+      // 🟢 F2: Focar na busca
+      if (e.key === "F2" || e.code === "F2") {
         e.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+        
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select();
+        }
       }
-      // F3: Clear cart
-      if (e.key === "F3") {
+
+      // 🟢 F3: Limpar carrinho
+      if (e.key === "F3" || e.code === "F3") {
         e.preventDefault();
         handleClearCart();
       }
-      // F4: Open payment
-      if (e.key === "F4" && cart.length > 0) {
+
+      // 🟢 F4: Abrir pagamento
+      if ((e.key === "F4" || e.code === "F4") && cart.length > 0) {
         e.preventDefault();
         setShowPaymentDialog(true);
       }
-      // ESC: Clear search
+
+      // 🟢 ESC: Limpar busca
       if (e.key === "Escape" && search) {
         e.preventDefault();
         setSearch("");
       }
     };
 
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
+    // 🔴 O segredo está no parâmetro 'true' no final:
+    // Ele faz o evento ser interceptado ANTES de qualquer outro elemento da tela
+    window.addEventListener("keydown", handleKeyPress, true);
+    return () => window.removeEventListener("keydown", handleKeyPress, true);
   }, [search, cart]);
 
   const addToCart = (product: Product) => {
@@ -144,14 +154,24 @@ export function PDV() {
     <div className="h-screen flex flex-col bg-accent/20">
       {/* Header */}
       <div className="bg-white border-b border-border p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl text-primary">Ponto de Venda</h1>
-            <p className="text-sm text-muted-foreground">Use F2 para buscar, F3 para limpar, F4 para finalizar</p>
+            <h1 className="text-2xl text-primary font-bold">Ponto de Venda</h1>
+            <p className="text-sm text-muted-foreground">
+              Use F2 para buscar, F3 para limpar, F4 para finalizar
+            </p>
           </div>
+
+          {/* CARD FLUTUANTE / ARRASTÁVEL DO HISTÓRICO */}
+          <CardHistoricoFlutuante />
+
           <div className="text-right">
-            <p className="text-sm text-muted-foreground">Sábado, 20 de Junho de 2026</p>
-            <p className="text-lg font-medium">{new Date().toLocaleTimeString('pt-BR')}</p>
+            <p className="text-sm text-muted-foreground">
+              Sábado, 20 de Junho de 2026
+            </p>
+            <p className="text-lg font-medium">
+              {new Date().toLocaleTimeString('pt-BR')}
+            </p>
           </div>
         </div>
         <TagIdentificadoraPDV />
