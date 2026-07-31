@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { CardHistoricoFlutuante } from "../components/CardHistoricoFlutuante";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -21,6 +20,8 @@ export function PDV() {
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const [currentTime, setCurrentTime] = useState(new Date());
+
 
   // Focus search on mount
   useEffect(() => {
@@ -84,6 +85,15 @@ export function PDV() {
     window.addEventListener("keydown", handleKeyPress, true);
     return () => window.removeEventListener("keydown", handleKeyPress, true);
   }, [search, cart]);
+
+  // ⏰ Relógio ao vivo
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer); // Limpa o timer quando o componente desmonta
+  }, []);
 
   const addToCart = (product: Product) => {
     const existing = cart.find((item) => item.id === product.id);
@@ -161,16 +171,17 @@ export function PDV() {
               Use F2 para buscar, F3 para limpar, F4 para finalizar
             </p>
           </div>
-
-          {/* CARD FLUTUANTE / ARRASTÁVEL DO HISTÓRICO */}
-          <CardHistoricoFlutuante />
-
           <div className="text-right">
-            <p className="text-sm text-muted-foreground">
-              Sábado, 20 de Junho de 2026
+            <p className="text-sm text-muted-foreground capitalize">
+                {currentTime.toLocaleDateString('pt-BR', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
             </p>
-            <p className="text-lg font-medium">
-              {new Date().toLocaleTimeString('pt-BR')}
+            <p className="text-lg font-medium font-mono">
+                {currentTime.toLocaleTimeString('pt-BR')}
             </p>
           </div>
         </div>

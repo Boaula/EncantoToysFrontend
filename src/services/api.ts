@@ -44,6 +44,38 @@ export interface TokenResponse {
   cargo: string;
 }
 
+// --- NOVAS INTERFACES DE HISTÓRICO ---
+export interface ItemVendaHistorico {
+  id: number;
+  produto_id: number;
+  nome_produto: string;
+  quantidade: number;
+  preco_estatico: number;
+  subtotal: number;
+}
+
+export interface VendaHistorico {
+  id: number;
+  uuid: string;
+  total: number;
+  forma_pagamento: string;
+  data_venda: string;
+  sincronizado: boolean;
+  caixa_id?: number;
+  usuario_id?: number;
+  nome_usuario?: string;
+  itens: ItemVendaHistorico[];
+}
+
+export interface FiltrosHistorico {
+  data_inicio?: string;
+  data_fim?: string;
+  forma_pagamento?: string;
+  sincronizado?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
 // ==========================================
 // SERVIÇO DE AUTENTICAÇÃO
 // ==========================================
@@ -268,5 +300,48 @@ export const pdvService = {
     }
 
     return true;
+  },
+
+  obterHistoricoVendas: async (filtros?: FiltrosHistorico): Promise<VendaHistorico[]> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    const params = new URLSearchParams();
+
+    if (filtros?.data_inicio) params.append("data_inicio", filtros.data_inicio);
+    if (filtros?.data_fim) params.append("data_fim", filtros.data_fim);
+    if (filtros?.forma_pagamento) params.append("forma_pagamento", filtros.forma_pagamento);
+    if (filtros?.sincronizado !== undefined) params.append("sincronizado", String(filtros.sincronizado));
+    if (filtros?.limit) params.append("limit", String(filtros.limit));
+    if (filtros?.offset) params.append("offset", String(filtros.offset));
+
+    const url = `${API_URL}/vendas/?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error("Erro ao buscar histórico de vendas.");
+    }
+
+    return response.json();
+  },
+
+  obterDetalhesVenda: async (vendaId: number): Promise<VendaHistorico> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    const response = await fetch(`${API_URL}/vendas/${vendaId}`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error("Erro ao carregar detalhes da venda.");
+    }
+
+    return response.json();
   },
 };

@@ -158,11 +158,17 @@ export function GestaoEstoque() {
                       <TableCell>R$ {product.price.toFixed(2).replace('.', ',')}</TableCell>
                       <TableCell>{product.stock} un</TableCell>
                       <TableCell>
-                        <Badge 
-                          className={isCritico ? "bg-rose-600 hover:bg-rose-700 text-white" : "bg-emerald-500 hover:bg-emerald-600 text-white"}
-                        >
-                          {isCritico ? "Crítico" : "Normal"}
-                        </Badge>
+                      <Badge 
+                        className={
+                          product.stock <= 5
+                            ? "bg-rose-600 hover:bg-rose-700 text-white"
+                            : product.stock <= 7
+                            ? "bg-amber-500 hover:bg-amber-600 text-white"
+                            : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                        }
+                      >
+                        {product.stock <= 5 ? "Crítico" : product.stock <= 7 ? "Atenção" : "Normal"}
+                      </Badge>
                       </TableCell>
                       <TableCell className="text-right space-x-1">
                         <Button 

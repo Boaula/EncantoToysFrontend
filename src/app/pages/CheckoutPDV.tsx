@@ -67,6 +67,16 @@ export function CheckoutPDV() {
       const resposta = await pdvService.registrarVenda(payloadVenda);
       const idVendaReal = resposta.venda_id || resposta.id || Math.floor(1000 + Math.random() * 9000);
 
+      window.dispatchEvent(new CustomEvent("venda-realizada", {
+        detail: {
+          venda: {
+            total: valorTotalFinal,
+            qtdVendas: 1,
+            quantidadeItens: itensFormatados.length,
+          },
+        },
+      }));
+
       const itensCupom = (resposta.itens && resposta.itens.length > 0)
         ? resposta.itens.map((item: any) => ({
             nome: item.nome_produto,

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LayoutDashboard, ShoppingCart, Home, Package, LogOut, Users } from "lucide-react";
 import logoEncanto from "../../assets/EncantoToys.png";
 import { pdvService } from "../../services/api";
+import { CardHistoricoFlutuante } from "./CardHistoricoFlutuante";
 
 import { Button } from "./ui/button";
 
@@ -59,6 +60,7 @@ export function Layout() {
 
   return (
     <div className="flex h-screen bg-background">
+      <CardHistoricoFlutuante />
       {/* Sidebar */}
       <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
         <div className="p-6 border-b border-sidebar-border">

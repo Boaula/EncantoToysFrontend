@@ -2,10 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import logoEncanto from "../../assets/EncantoToys.png";
-import { authService, pdvService } from "../../services/api";
+import { authService, pdvService, Product, VendaHistorico } from "../../services/api";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Sparkles,
   Eye,
   EyeOff,
   LogIn,
@@ -15,54 +14,71 @@ import {
   AlertTriangle,
   Clock,
   BarChart2,
+  RefreshCw,
 } from "lucide-react";
-import {
-  getTodayTotal,
-  getTodayItemsCount,
-  getLowStockProducts,
-  todaySales,
-} from "../data/mockData";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
-
-const chartData = todaySales.map((s) => ({
-  hora: new Date(s.date).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-  valor: s.total,
-}));
-
-const lowStock    = getLowStockProducts().slice(0, 4);
-const todayTotal  = getTodayTotal();
-const todayItems  = getTodayItemsCount();
 
 /* ── tokens for the orange login panel ── */
 const P = {
-  bg:          "#FFCC9F",
-  heading:     "#4A2C10",
-  label:       "#4A2C10",
-  muted:       "#333333",
-  inputBg:     "rgba(255,255,255,0.15)",
+  bg: "#FFCC9F",
+  heading: "#4A2C10",
+  label: "#4A2C10",
+  muted: "#333333",
+  inputBg: "rgba(255,255,255,0.15)",
   inputBorder: "#333333",
-  inputFocus:  "rgba(255,255,255,0.85)",
-  btnBg:       "#FFFFFF",
-  btnHover:    "#FFF0E8",
-  footerBorder:"rgba(255,255,255,0.20)",
+  inputFocus: "rgba(255,255,255,0.85)",
+  btnBg: "#FFFFFF",
+  btnHover: "#FFF0E8",
+  footerBorder: "rgba(255,255,255,0.20)",
 };
 
 export function Home() {
   const navigate = useNavigate();
-  const [login, setLogin]       = useState("");
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [showPwd, setShowPwd]   = useState(false);
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const loginRef = useRef<HTMLInputElement>(null);
 
-  // Se o usuário já tiver um token válido guardado, redireciona direto
+  // 📊 Estados do Preview do Dashboard
+  const [vendas, setVendas] = useState<VendaHistorico[]>([]);
+  const [produtos, setProdutos] = useState<Product[]>([]);
+  const [loadingDash, setLoadingDash] = useState(true);
+
+  // 🔄 Carrega dados reais do Dashboard para o dia atual
+  const carregarDadosDashboard = async () => {
+    try {
+      setLoadingDash(true);
+      const hojeIso = new Date().toLocaleDateString("sv"); // Formato YYYY-MM-DD local
+
+      const [vendasRes, produtosRes] = await Promise.all([
+        pdvService.obterHistoricoVendas({
+          data_inicio: `${hojeIso}T00:00:00`,
+          data_fim: `${hojeIso}T23:59:59`,
+          limit: 100,
+        }),
+        pdvService.buscarProdutos(""),
+      ]);
+
+      setVendas(vendasRes || []);
+      setProdutos(produtosRes || []);
+    } catch (err) {
+      console.error("Erro ao carregar dados da Home:", err);
+    } finally {
+      setLoadingDash(false);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("@EncantoToys:token");
     if (token) {
       navigate("/pdv");
     }
     loginRef.current?.focus();
+
+    // Busca os dados do dashboard em tempo real
+    carregarDadosDashboard();
   }, [navigate]);
 
   // 🔐 Envio Real para o Backend FastAPI
@@ -74,51 +90,82 @@ export function Home() {
     setLoading(true);
 
     try {
-      // 1. Faz a chamada HTTP real para o endpoint /login
       const dados = await authService.login(login.trim(), password);
-      
-      // 2. Salva os dados de sessão no localStorage de forma definitiva
+
       localStorage.setItem("@EncantoToys:token", dados.access_token);
       localStorage.setItem("@EncantoToys:cargo", dados.cargo);
       localStorage.setItem("@EncantoToys:username", login.trim().toLowerCase());
 
-      // 3. ABERTURA AUTOMÁTICA DO CAIXA
       try {
         let nomeDaMaquina = "MAQUINA_DESCONHECIDA";
-        
-        // Verifica se a propriedade global do Tauri existe na janela do app
+
         if ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) {
           nomeDaMaquina = await invoke<string>("plugin:os|hostname");
         } else {
-          console.warn("Ambiente Tauri não detectado (Rodando no Navegador). Usando máquina padrão MHS.");
-          nomeDaMaquina = "MHS_WEB"; // Nome temporário para testes no navegador
+          nomeDaMaquina = "MHS_WEB";
         }
-        
-        await pdvService.iniciarOperacao(nomeDaMaquina, login.trim().toLowerCase());
-        console.log("Caixa iniciado automaticamente para:", nomeDaMaquina);
 
+        await pdvService.iniciarOperacao(nomeDaMaquina, login.trim().toLowerCase());
       } catch (err) {
-        console.error("Erro interno ao invocar hostname:", err);
-        console.warn("Não foi possível iniciar o caixa automaticamente, mas o login ocorreu.");
+        console.warn("Não foi possível iniciar o caixa automaticamente, mas o login ocorreu.", err);
       }
 
-      // 4. Redireciona o fluxo para o PDV
       navigate("/pdv");
     } catch (err: any) {
-      // 5. Captura o erro real retornado (ex: 401 do FastAPI) e renderiza na UI
       setError(err.message || "Erro ao conectar com o servidor.");
       setLoading(false);
     }
   };
 
-  const now     = new Date();
+  const now = new Date();
   const timeStr = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const dateStr = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
 
+  // 🧼 Helper para limpar "FormaPagamento.PIX" -> "PIX"
+  const formatarNomePagamento = (metodo: string) => {
+    if (!metodo) return "Outros";
+    const chave = String(metodo).replace("FormaPagamento.", "").toUpperCase();
+    const mapa: Record<string, string> = {
+      DINHEIRO: "Dinheiro",
+      PIX: "PIX",
+      CARTAO_CREDITO: "Cartão Crédito",
+      CARTAO_DEBITO: "Cartão Débito",
+      CREDITO: "Cartão Crédito",
+      DEBITO: "Cartão Débito",
+    };
+    return mapa[chave] || chave;
+  };
+
+  // 🧮 CÁLCULOS DINÂMICOS COM OS DADOS DO BANCO REAL
+  const todayTotal = vendas.reduce((acc, v) => acc + Number(v.total || 0), 0);
+  const todayItems = vendas.reduce(
+    (acc, v) => acc + (v.itens?.reduce((sum, item) => sum + Number(item.quantidade || 0), 0) || 0),
+    0
+  );
+  const lowStockProducts = produtos.filter((p) => p.stock <= 10);
+  const lowStockList = lowStockProducts.slice(0, 4);
+
+  // 📈 Dados do Gráfico de Área (Agrupados por hora)
+  const chartData = vendas
+    .reduce((acc, sale) => {
+      const dateObj = new Date(sale.data_venda);
+      const hora = `${dateObj.getHours()}h`;
+      const existing = acc.find((item) => item.hora === hora);
+      if (existing) {
+        existing.valor += Number(sale.total || 0);
+      } else {
+        acc.push({ hora, valor: Number(sale.total || 0), sortKey: dateObj.getHours() });
+      }
+      return acc;
+    }, [] as { hora: string; valor: number; sortKey: number }[])
+    .sort((a, b) => a.sortKey - b.sortKey);
+
+  // 🛒 Últimas Vendas (Máximo 4)
+  const ultimasVendas = [...vendas].reverse().slice(0, 4);
+
   return (
     <div className="min-h-screen flex overflow-hidden" style={{ background: "#f0f0f4" }}>
-
-      {/* ══ LEFT: Login Panel (golden) ══════════════════════════ */}
+      {/* ══ LEFT: Login Panel ══════════════════════════ */}
       <motion.div
         initial={{ opacity: 0, x: -24 }}
         animate={{ opacity: 1, x: 0 }}
@@ -126,37 +173,30 @@ export function Home() {
         className="relative flex flex-col w-full max-w-[420px] min-h-screen shadow-2xl z-10"
         style={{ background: P.bg }}
       >
-        {/* top stripe */}
         <div className="h-1 w-full bg-gradient-to-r from-[#C47A00] via-[#FF6B35] to-[#00C9A7]" />
 
         <div className="flex flex-col flex-1 px-10 py-10">
-
-          {/* Logo */}
           <div className="flex items-center gap-3 mb-12">
             <div className="w-11 h-11 rounded-xl bg-white/20 border border-white/30 flex items-center justify-center shadow-lg">
-            <img 
-                  src={logoEncanto} 
-                  alt="Logo Encanto Toys" 
-                  className="w-full h-full object-contain aspect-square" 
-                />
+              <img src={logoEncanto} alt="Logo Encanto Toys" className="w-full h-full object-contain aspect-square" />
             </div>
             <div>
               <p className="text-base font-bold leading-none" style={{ color: P.heading }}>
                 Encanto Toys
               </p>
-              <p className="text-xs" style={{ color: P.muted }}>Sistema de PDV</p>
+              <p className="text-xs" style={{ color: P.muted }}>
+                Sistema de PDV
+              </p>
             </div>
           </div>
 
-          {/* Heading */}
           <motion.div
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.06 }}
             className="mb-8"
           >
-            <h1 className="text-3xl font-extrabold tracking-tight leading-tight mb-1"
-                style={{ color: P.heading }}>
+            <h1 className="text-3xl font-extrabold tracking-tight leading-tight mb-1" style={{ color: P.heading }}>
               Olá, bem-vindo!
             </h1>
             <p className="text-sm" style={{ color: P.muted }}>
@@ -164,7 +204,6 @@ export function Home() {
             </p>
           </motion.div>
 
-          {/* Form */}
           <motion.form
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
@@ -172,9 +211,10 @@ export function Home() {
             onSubmit={handleSubmit}
             className="flex flex-col gap-5"
           >
-            {/* Usuário */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold" style={{ color: P.label }}>Usuário</label>
+              <label className="text-sm font-semibold" style={{ color: P.label }}>
+                Usuário
+              </label>
               <input
                 ref={loginRef}
                 type="text"
@@ -189,13 +229,14 @@ export function Home() {
                   color: P.heading,
                 }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = P.inputFocus)}
-                onBlur={(e)  => (e.currentTarget.style.borderColor = P.inputBorder)}
+                onBlur={(e) => (e.currentTarget.style.borderColor = P.inputBorder)}
               />
             </div>
 
-            {/* Senha */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold" style={{ color: P.label }}>Senha</label>
+              <label className="text-sm font-semibold" style={{ color: P.label }}>
+                Senha
+              </label>
               <div className="relative">
                 <input
                   type={showPwd ? "text" : "password"}
@@ -210,7 +251,7 @@ export function Home() {
                     color: P.heading,
                   }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = P.inputFocus)}
-                  onBlur={(e)  => (e.currentTarget.style.borderColor = P.inputBorder)}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = P.inputBorder)}
                 />
                 <button
                   type="button"
@@ -224,7 +265,6 @@ export function Home() {
               </div>
             </div>
 
-            {/* Erro */}
             {error && (
               <motion.p
                 initial={{ opacity: 0, y: -6 }}
@@ -236,14 +276,17 @@ export function Home() {
               </motion.p>
             )}
 
-            {/* Botão */}
             <button
               type="submit"
               disabled={loading || !login || !password}
               className="mt-1 w-full rounded-xl font-bold py-3 flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: P.btnBg, color: "#F05A1A" }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = P.btnHover; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = P.btnBg; }}
+              onMouseEnter={(e) => {
+                if (!loading) e.currentTarget.style.background = P.btnHover;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = P.btnBg;
+              }}
             >
               {loading ? (
                 <span className="w-4 h-4 rounded-full border-2 border-[#F05A1A]/30 border-t-[#F05A1A] animate-spin" />
@@ -257,7 +300,6 @@ export function Home() {
           </motion.form>
         </div>
 
-        {/* Footer */}
         <div
           className="px-10 py-5 flex items-center justify-between text-[11px]"
           style={{ borderTop: `1px solid ${P.footerBorder}`, color: P.muted }}
@@ -274,17 +316,25 @@ export function Home() {
 
       {/* ══ RIGHT: Dashboard Preview ════════════════════════════ */}
       <div className="flex flex-1 flex-col p-8 gap-5 overflow-auto">
-         {/* Toda a parte direita se mantém exatamente igual ao seu código original */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.18 }}
-          className="flex items-center gap-2 text-muted-foreground"
+          className="flex items-center justify-between text-muted-foreground"
         >
-          <BarChart2 className="w-4 h-4" />
-          <span className="text-sm font-medium capitalize">Resumo do dia — {dateStr}</span>
+          <div className="flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-primary" />
+            <span className="text-sm font-semibold capitalize text-slate-700">Resumo do dia — {dateStr}</span>
+          </div>
+
+          {loadingDash && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Atualizando...
+            </div>
+          )}
         </motion.div>
 
+        {/* CARDS DE KPI */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -292,9 +342,24 @@ export function Home() {
           className="grid grid-cols-3 gap-4"
         >
           {[
-            { label: "Faturamento",    value: `R$ ${todayTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, icon: TrendingUp, color: "bg-[#FF6B35]" },
-            { label: "Itens vendidos", value: todayItems.toString(),                                                      icon: ShoppingCart, color: "bg-[#00C9A7]" },
-            { label: "Estoque crítico",value: getLowStockProducts().length.toString(),                                    icon: Package,     color: "bg-[#FFB84D]" },
+            {
+              label: "Faturamento",
+              value: `R$ ${todayTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+              icon: TrendingUp,
+              color: "bg-[#FF6B35]",
+            },
+            {
+              label: "Itens vendidos",
+              value: todayItems.toString(),
+              icon: ShoppingCart,
+              color: "bg-[#00C9A7]",
+            },
+            {
+              label: "Estoque precisando atenção",
+              value: lowStockProducts.length.toString(),
+              icon: Package,
+              color: "bg-[#FFB84D]",
+            },
           ].map(({ label, value, icon: Icon, color }) => (
             <div key={label} className="bg-white rounded-2xl border border-border p-5 flex flex-col gap-3 shadow-sm">
               <div className={`w-9 h-9 rounded-xl ${color} flex items-center justify-center`}>
@@ -308,6 +373,7 @@ export function Home() {
           ))}
         </motion.div>
 
+        {/* GRÁFICO DE AREA (Vendas por Horário) */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -315,23 +381,30 @@ export function Home() {
           className="bg-white rounded-2xl border border-border p-6 shadow-sm flex-shrink-0"
         >
           <p className="text-sm font-semibold text-foreground mb-4">Vendas por horário</p>
-          <ResponsiveContainer width="100%" height={150}>
-            <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#FF6B35" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#FF6B35" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
-                formatter={(v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`}
-              />
-              <Area type="monotone" dataKey="valor" stroke="#FF6B35" strokeWidth={2} fill="url(#grad1)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
+          {chartData.length === 0 ? (
+            <div className="h-[150px] flex items-center justify-center text-xs text-muted-foreground">
+              Nenhuma venda realizada hoje.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={150}>
+              <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#FF6B35" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#FF6B35" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
+                  formatter={(v: number) => [`R$ ${Number(v).toFixed(2)}`, "Total"]}
+                />
+                <Area type="monotone" dataKey="valor" stroke="#FF6B35" strokeWidth={2} fill="url(#grad1)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </motion.div>
 
+        {/* ESTOQUE CRÍTICO */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -342,57 +415,86 @@ export function Home() {
             <AlertTriangle className="w-4 h-4 text-[#FFB84D]" />
             <p className="text-sm font-semibold text-foreground">Estoque crítico</p>
           </div>
-          <div className="space-y-3">
-            {lowStock.map((p) => (
-              <div key={p.id} className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-foreground leading-none">{p.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{p.category}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-[#FFB84D]"
-                      style={{ width: `${Math.min((p.stock / 15) * 100, 100)}%` }}
-                    />
+
+          {lowStockList.length === 0 ? (
+            <p className="text-xs text-emerald-600 font-medium py-2">Sem produtos com estoque crítico hoje!</p>
+          ) : (
+            <div className="space-y-3">
+              {lowStockList.map((p) => (
+                <div key={p.id} className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground leading-none">{p.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{p.category || "Geral"}</p>
                   </div>
-                  <span className={`text-xs font-bold w-12 text-right ${p.stock <= 5 ? "text-red-500" : "text-[#FFB84D]"}`}>
-                    {p.stock} un.
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {/* Barra de progresso */}
+                    <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          p.stock <= 5 ? "bg-red-500" : p.stock <= 7 ? "bg-[#FFB84D]" : "bg-emerald-500"
+                        }`}
+                        style={{ width: `${Math.min((p.stock / 15) * 100, 100)}%` }}
+                      />
+                    </div>
+
+                    {/* Texto com a cor referente ao nível do estoque */}
+                    <span
+                      className={`text-xs font-bold w-12 text-right ${
+                        p.stock <= 5 ? "text-red-500" : p.stock <= 7 ? "text-amber-500" : "text-emerald-500"
+                      }`}
+                    >
+                      {p.stock} un.
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </motion.div>
 
+        {/* ÚLTIMAS VENDAS */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.4 }}
           className="bg-white rounded-2xl border border-border p-6 shadow-sm"
         >
-          <p className="text-sm font-semibold text-foreground mb-4">Últimas vendas</p>
-          <div className="space-y-2">
-            {todaySales.slice(-4).reverse().map((s) => (
-              <div key={s.id} className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-[#00C9A7]/10 flex items-center justify-center">
-                    <ShoppingCart className="w-4 h-4 text-[#00C9A7]" />
+          <p className="text-sm font-semibold text-foreground mb-4">Últimas vendas do dia</p>
+
+          {ultimasVendas.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-2">Ainda não há vendas registradas hoje.</p>
+          ) : (
+            <div className="space-y-2">
+              {ultimasVendas.map((s) => {
+                const totalItens = s.itens?.reduce((acc, item) => acc + Number(item.quantidade || 0), 0) || 0;
+                const horaFormatada = new Date(s.data_venda).toLocaleTimeString("pt-BR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+
+                return (
+                  <div key={s.id} className="flex items-center justify-between py-1">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-[#00C9A7]/10 flex items-center justify-center">
+                        <ShoppingCart className="w-4 h-4 text-[#00C9A7]" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-foreground">
+                          {formatarNomePagamento(s.forma_pagamento)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {horaFormatada} · {totalItens} {totalItens === 1 ? "item" : "itens"}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-sm font-bold text-foreground">
+                      R$ {Number(s.total).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-xs font-medium text-foreground">{s.paymentMethod}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {new Date(s.date).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                      {" · "}{s.items} {s.items === 1 ? "item" : "itens"}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-sm font-bold text-foreground">
-                  R$ {s.total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </motion.div>
       </div>
     </div>
