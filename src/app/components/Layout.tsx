@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LayoutDashboard, ShoppingCart, Home, Package, LogOut, Users } from "lucide-react";
 import logoEncanto from "../../assets/EncantoToys.png";
+import logoMHS from "../../assets/LogoMHS.png";
 import { pdvService } from "../../services/api";
 import { CardHistoricoFlutuante } from "./CardHistoricoFlutuante";
 
@@ -149,13 +150,59 @@ export function Layout() {
             <LogOut className="w-5 h-5 text-red-500" />
             Sair do Sistema
           </Button>
+
+          {/* [RODAPÉ 1] Direitos Autorais no final do Menu Lateral */}
+          <div className="pt-2 text-[10px] text-center text-sidebar-foreground/80 border-t border-sidebar-border/50 flex flex-col items-center justify-center gap-1">
+            <img 
+              src={logoMHS} 
+              alt="Logo MHS" 
+              className="w-6 h-6 object-contain" 
+            />
+
+            <span>© {new Date().getFullYear()} Desenvolvido por</span>
+            <div className="inline-flex items-center justify-center gap-1.5">
+              <strong className="font-semibold text-muted-foreground">
+                Natanael Figueiredo / MHS - Math High Speed
+              </strong>
+            </div>
+          </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
+      <main className="flex-1 overflow-auto flex flex-col justify-between">
+        {/* Conteúdo das Páginas */}
+        <div className="flex-1">
+          <Outlet />
+        </div>
+
+        {/* [RODAPÉ 2] Rodapé de Direitos Autorais na área principal */}
+        <footer className="py-2.5 px-6 border-t border-border bg-white text-xs text-muted-foreground flex items-center justify-end select-none">
+          {/* Agrupa o Texto + Logo (posicionado à direita do texto) */}
+          <div className="flex items-center gap-2">
+            <p>
+              © {new Date().getFullYear()}{" "}
+              <strong className="font-semibold text-foreground">
+                Natanael Figueiredo / MHS - Math High Speed
+              </strong>
+              . Todos os direitos reservados.
+            </p>
+            <img 
+              src={logoMHS} 
+              alt="Logo MHS" 
+              className="w-6 h-6 object-contain" 
+            />
+          </div>
+
+          {/* Versão alinhada na extrema direita do rodapé */}
+          <p className="text-[11px] font-mono">
+            Encanto Toys PDV v1.0.0
+          </p>
+        </footer>
       </main>
+
+
+
     </div>
   );
 }
