@@ -1,222 +1,283 @@
-import React, { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { imprimirCupomVenda, DadosVenda } from "../../services/printerService";
 import { Button } from "../components/ui/button";
-import { pdvService, VendaPayload } from "../../services/api";
+import { pdvService, VendaPayload, fiscalService } from "../../services/api";
+import { imprimirCupomVenda, DadosVenda } from "../../services/printerService";
+import { validarCPF } from "../../services/validators";
+
+import { VendaCheckout, TipoAjuste } from "../../models/VendaCheckout";
+import { PainelDescontoAcrescimo } from "../components/pdv/PainelDescontoAcrescimo";
+import { CampoCpf } from "../components/pdv/CampoCpf";
+import { ModalDanfePdf } from "../components/pdv/ModalDanfePdf";
 
 export function CheckoutPDV() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Estados de controle
+  // Dados recebidos via Navegação
+  const stateData = location.state || {};
+  const paymentMethod = stateData.paymentMethod || stateData.formaPagamento || "DINHEIRO";
+  const operadorAtual = localStorage.getItem("@EncantoToys:username") || "Caixa 01";
+  const valorPago = stateData.valorPago || 0;
+  const troco = stateData.troco || 0;
+
+  // 🟢 Instância da Classe Orientada a Objetos para Gestão dos Itens e Valores
+  const venda = useMemo(() => new VendaCheckout(stateData.cart || stateData.carrinho || []), [stateData]);
+
+  // Estados de Desconto e Acréscimo
+  const [descontoVal, setDescontoVal] = useState(0);
+  const [descontoTipo, setDescontoTipo] = useState<TipoAjuste>("R$");
+  const [acrescimoVal, setAcrescimoVal] = useState(0);
+  const [acrescimoTipo, setAcrescimoTipo] = useState<TipoAjuste>("R$");
+
+  // Estados de Interface e Processamento
+  const [cpfCliente, setCpfCliente] = useState("");
+  const [erroCpf, setErroCpf] = useState("");
   const [salvandoVenda, setSalvandoVenda] = useState(false);
   const [imprimindo, setImprimindo] = useState(false);
+  const [emitindoNfce, setEmitindoNfce] = useState(false);
+  
+  // Estados do Modal Pós-Venda
   const [modalAberto, setModalAberto] = useState(false);
   const [dadosVendaFinal, setDadosVendaFinal] = useState<DadosVenda | null>(null);
+  const [vendaIdReal, setVendaIdReal] = useState<number | null>(null);
+  const [urlDanfeModal, setUrlDanfeModal] = useState<string | null>(null);
 
-  // Dados recebidos da tela de PDV
-  const stateData = location.state || {};
-  const cart = stateData.cart || stateData.carrinho || [];
-  const total = stateData.total || stateData.valorTotal || stateData.totalVenda || 0;
-  const paymentMethod = stateData.paymentMethod || stateData.formaPagamento || "DINHEIRO";
+  // Aplica alterações nos cálculos do modelo OO
+  venda.setDesconto(descontoVal, descontoTipo);
+  venda.setAcrescimo(acrescimoVal, acrescimoTipo);
 
-  useEffect(() => {
-    console.log("📦 Estado do PDV carregado:", stateData);
-  }, []);
+  // --- HANDLERS DA APLICAÇÃO ---
 
-  // 1️⃣ GRAVA A VENDA NO BANCO LOCAL E MONTA A PRÉVIA DO CUPOM
+  const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (erroCpf) setErroCpf("");
+    let value = e.target.value.replace(/\D/g, "").slice(0, 14);
+
+    if (value.length <= 11) {
+      value = value.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+    } else {
+      value = value.replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d)/, ".$1/$2").replace(/(\d{4})(\d)/, "$1-$2");
+    }
+    setCpfCliente(value);
+  };
+
   const handleFinalizarVenda = async () => {
-    console.log("🔥 Botão Clicado! Iniciando salvamento...");
+    setErroCpf("");
+
+    if (cpfCliente.trim() !== "") {
+      const docLimpo = cpfCliente.replace(/\D/g, "");
+      if (docLimpo.length === 11 && !validarCPF(docLimpo)) {
+        setErroCpf("CPF inválido. Verifique os números digitados.");
+        return;
+      } else if (docLimpo.length !== 11 && docLimpo.length !== 14) {
+        setErroCpf("Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.");
+        return;
+      }
+    }
+
     setSalvandoVenda(true);
 
     try {
-      const operadorAtual = localStorage.getItem("@EncantoToys:username") || "Caixa 01";
       const caixaIdLocal = Number(localStorage.getItem("@EncantoToys:caixa_id")) || 1;
+      
+      // 🟢 Payload unificado direto da classe de modelo
+      const payloadVenda = venda.toPayloadCompleto(
+        caixaIdLocal,
+        1, // usuario_id
+        String(paymentMethod),
+        cpfCliente
+      );
 
-      // Extrai e valida os itens
-      const itensFormatados = cart.map((item: any) => {
-        const idEncontrado = 
-          item.id ?? item.produto_id ?? item.product_id ?? item.product?.id ?? item.produto?.id;
+      // 🟢 AQUI: Adicionado "as any" para destravar a validação do TypeScript
+      const resposta = await pdvService.registrarVenda(payloadVenda as any);
+      const idVendaReal = resposta.venda_id || resposta.id;
 
-        if (!idEncontrado) {
-          throw new Error(`Produto "${item.nome || item.name || 'Desconhecido'}" está sem ID.`);
-        }
+      setVendaIdReal(Number(idVendaReal));
 
-        return {
-          produto_id: Number(idEncontrado),
-          quantidade: Number(item.quantity ?? item.quantidade ?? item.qtd ?? 1),
-          preco_unitario: Number(item.price ?? item.preco ?? item.preco_venda ?? item.preco_unitario ?? 0),
-        };
+      // 🟢 Dispara o evento exato com a estrutura que o CardHistoricoFlutuante lê
+      window.dispatchEvent(
+        new CustomEvent("venda-realizada", {
+          detail: {
+            venda: {
+              total: venda.getTotalFinal(),
+              qtdVendas: 1,
+            },
+          },
+        })
+      );
+
+      setDadosVendaFinal({
+        idVenda: idVendaReal.toString(),
+        data: new Date().toLocaleString("pt-BR", { timeZone: "America/Cuiaba" }),
+        operador: operadorAtual,
+        itens: venda.getItens().map((i) => ({ nome: i.nome, qtd: i.quantidade, precoUnitario: i.precoUnitario })),
+        total: venda.getTotalFinal(),
+        formaPagamento: paymentMethod,
       });
 
-      const somaItens = itensFormatados.reduce(
-        (acc, item) => acc + item.preco_unitario * item.quantidade,
-        0
-      );
-      const valorTotalFinal = Number(total) > 0 ? Number(total) : somaItens;
-
-      const payloadVenda: VendaPayload = {
-        caixa_id: caixaIdLocal,
-        usuario_id: 1,
-        forma_pagamento: String(paymentMethod),
-        valor_total: valorTotalFinal,
-        itens: itensFormatados,
-      };
-
-      // Chama a API local
-      const resposta = await pdvService.registrarVenda(payloadVenda);
-      const idVendaReal = resposta.venda_id || resposta.id || Math.floor(1000 + Math.random() * 9000);
-
-      window.dispatchEvent(new CustomEvent("venda-realizada", {
-        detail: {
-          venda: {
-            total: valorTotalFinal,
-            qtdVendas: 1,
-            quantidadeItens: itensFormatados.length,
-          },
-        },
-      }));
-
-      const itensCupom = (resposta.itens && resposta.itens.length > 0)
-        ? resposta.itens.map((item: any) => ({
-            nome: item.nome_produto,
-            qtd: item.quantidade,
-            precoUnitario: item.preco_unitario,
-          }))
-        : cart.map((item: any) => ({
-            nome: item.nome || item.nome_produto || item.name || "Produto",
-            qtd: item.quantity || item.quantidade || 1,
-            precoUnitario: item.price || item.preco || 0,
-          }));
-
-      // Prepara o objeto do cupom para a impressora e prévia na tela
-      const dadosCupom: DadosVenda = {
-        idVenda: idVendaReal.toString(),
-        data: new Date().toLocaleString("pt-BR"),
-        operador: operadorAtual,
-        itens: itensCupom,
-        total: resposta.total || payloadVenda.valor_total,
-        formaPagamento: resposta.forma_pagamento || paymentMethod,
-      };
-
-      setDadosVendaFinal(dadosCupom);
-      setModalAberto(true); // 🟢 ABRE O MODAL DE DECISÃO
-
+      setModalAberto(true);
     } catch (error: any) {
-      console.error("Erro ao registrar venda:", error);
       alert(`Erro ao finalizar venda:\n${error.message || "Erro de comunicação."}`);
     } finally {
       setSalvandoVenda(false);
     }
   };
 
-  // 2️⃣ DISPARA A IMPRESSÃO NA BEMATECH (CASO O CLIENTE QUEIRA O CUPOM)
-  const handleAcaoImprimir = async () => {
-    if (!dadosVendaFinal) return;
-
-    setImprimindo(true);
-    const portaImpressora = localStorage.getItem("@EncantoToys:printer_port") || "/dev/ttyACM0";
+  const handleEmitirNfce = async () => {
+    if (!vendaIdReal) return;
+    setEmitindoNfce(true);
 
     try {
-      const resultado = await imprimirCupomVenda(dadosVendaFinal, portaImpressora);
-      if (resultado.sucesso) {
-        alert("Cupom impresso com sucesso!");
-      } else {
-        alert(`Aviso da Impressora: ${resultado.mensagem}`);
+      const resultado = await fiscalService.emitirNfce(vendaIdReal, cpfCliente.trim() || undefined);
+      if (!resultado.sucesso || !resultado.caminho_danfe) {
+        throw new Error(resultado.mensagem || "A SEFAZ não autorizou a nota fiscal.");
       }
-    } catch (err) {
-      alert("Não foi possível conectar à impressora física.");
+
+      const BASE_FOCUS = "https://homologacao.focusnfe.com.br";
+      const urlDanfePdf = resultado.caminho_danfe.startsWith("http")
+        ? resultado.caminho_danfe
+        : `${BASE_FOCUS}${resultado.caminho_danfe}`;
+
+      const portaImpressora = localStorage.getItem("@EncantoToys:printer_port") || "/dev/ttyACM0";
+      let impressaoComSucesso = false;
+
+      try {
+        if (dadosVendaFinal) {
+          const resultadoImpressao = await imprimirCupomVenda(dadosVendaFinal, portaImpressora);
+          impressaoComSucesso = Boolean(resultadoImpressao?.sucesso);
+        }
+      } catch (err) {
+        impressaoComSucesso = false;
+      }
+
+      if (!impressaoComSucesso) {
+        setUrlDanfeModal(urlDanfePdf);
+        return;
+      }
+
+      alert(`✅ NFC-e Autorizada e impressa com sucesso!`);
+      setModalAberto(false);
+      navigate("/pdv");
+    } catch (err: any) {
+      alert(`❌ Falha ao emitir NFC-e:\n\n${err.message || "Erro de comunicação com a SEFAZ."}`);
     } finally {
-      setImprimindo(false);
-      navigate("/pdv"); // Volta ao PDV após imprimir
+      setEmitindoNfce(false);
     }
   };
 
-  // 3️⃣ AÇÃO ECOLÓGICA: CONCLUI SEM IMPRIMIR
-  const handleAcaoNaoImprimir = () => {
-    navigate("/pdv"); // Apenas volta para o PDV economizando papel!
+  const handleBaixarEConcluir = async () => {
+    if (!urlDanfeModal) return;
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(urlDanfeModal);
+    } catch {
+      window.open(urlDanfeModal, "_blank");
+    } finally {
+      setUrlDanfeModal(null);
+      setModalAberto(false);
+      navigate("/pdv");
+    }
   };
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-primary">Checkout e Pagamento</h1>
+    <div className="min-h-screen bg-gradient-to-br from-cyan-100 via-sky-50 to-orange-100 p-4 md:p-8 flex items-center justify-center">
+      <div className="w-full max-w-2xl bg-gray-400 rounded-3xl border-4 border-orange-400 shadow-2xl overflow-hidden">
+        {/* CABEÇALHO */}
+        <div className="bg-cyan-400 p-5 px-6 flex items-center justify-between border-b-4 border-cyan-500">
+          <div>
+            <span className="text-[11px] uppercase font-black text-amber-950 bg-amber-300/90 px-2.5 py-0.5 rounded-md inline-block">
+              ★ ENCANTO TOYS
+            </span>
+            <h1 className="text-xl font-black text-slate-900 mt-1">Confirmação de Venda</h1>
+          </div>
+          <div className="text-right">
+            <span className="text-xs font-black text-cyan-950 bg-white/90 px-3 py-1 rounded-full shadow-xs">
+              👤 {operadorAtual}
+            </span>
+          </div>
+        </div>
 
-      <div className="bg-white p-6 rounded-lg border shadow-sm space-y-3">
-        <p className="text-lg"><strong>Forma de Pagamento:</strong> {paymentMethod}</p>
-        <p className="text-lg"><strong>Total da Venda:</strong> R$ {(Number(total) || 0).toFixed(2).replace('.', ',')}</p>
-        <p className="text-sm text-muted-foreground">Itens no carrinho: {cart.length}</p>
-      </div>
-
-      <div className="flex gap-4">
-        <Button 
-          variant="outline" 
-          onClick={() => navigate("/pdv")}
-          disabled={salvandoVenda}
-        >
-          Voltar ao PDV
-        </Button>
-
-        <Button 
-          size="lg" 
-          className="flex-1" 
-          onClick={handleFinalizarVenda} 
-          disabled={salvandoVenda || cart.length === 0}
-        >
-          {salvandoVenda ? "Gravando Venda..." : "Finalizar Venda"}
-        </Button>
-      </div>
-
-      {/* 🟢 MODAL DE COMPROVANTE E DECISÃO DE IMPRESSÃO */}
-      {modalAberto && dadosVendaFinal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl space-y-4 border">
-            <div className="text-center space-y-1">
-              <span className="text-3xl">✅</span>
-              <h2 className="text-xl font-bold text-emerald-600">Venda # {dadosVendaFinal.idVenda} Concluída!</h2>
-              <p className="text-xs text-muted-foreground">Registrada com sucesso no banco de dados.</p>
+        <div className="p-6 md:p-8 space-y-5">
+          {/* PAINEL DE TOTAL FINAL */}
+          <div className="bg-white rounded-2xl p-6 text-center shadow-xl border-2 border-cyan-400 space-y-2">
+            <span className="text-xs font-black uppercase text-slate-500 block">Valor Total a Pagar</span>
+            <div className="text-5xl font-black text-slate-900 font-mono">
+              {venda.getTotalFinal().toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
             </div>
 
-            {/* Prévia visual do cupom */}
-            <div className="bg-slate-50 p-4 rounded-lg border font-mono text-xs space-y-2 max-h-48 overflow-y-auto">
-              <p className="text-center font-bold">ENCANTO TOYS</p>
-              <p className="text-center border-b pb-1">Data: {dadosVendaFinal.data}</p>
-              {dadosVendaFinal.itens.map((item, idx) => (
-                <div key={idx} className="flex justify-between">
-                  <span>{item.qtd}x {item.nome}</span>
-                  <span>R$ {(item.qtd * item.precoUnitario).toFixed(2)}</span>
+            {/* Subdetalhamento se houver acréscimo/desconto */}
+            {(venda.getValorCalculadoDesconto() > 0 || venda.getValorCalculadoAcrescimo() > 0) && (
+              <div className="flex justify-center gap-4 text-xs font-bold pt-1">
+                <span className="text-slate-500">Subtotal: R$ {venda.getSubtotal().toFixed(2)}</span>
+                {venda.getValorCalculadoDesconto() > 0 && (
+                  <span className="text-rose-600">- Desconto: R$ {venda.getValorCalculadoDesconto().toFixed(2)}</span>
+                )}
+                {venda.getValorCalculadoAcrescimo() > 0 && (
+                  <span className="text-emerald-600">+ Acréscimo: R$ {venda.getValorCalculadoAcrescimo().toFixed(2)}</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* PAINEL DE DESCONTO E ACRÉSCIMO */}
+          <PainelDescontoAcrescimo
+            descontoVal={descontoVal}
+            descontoTipo={descontoTipo}
+            acrescimoVal={acrescimoVal}
+            acrescimoTipo={acrescimoTipo}
+            onDescontoChange={(val, tipo) => { setDescontoVal(val); setDescontoTipo(tipo); }}
+            onAcrescimoChange={(val, tipo) => { setAcrescimoVal(val); setAcrescimoTipo(tipo); }}
+          />
+
+          {/* CAMPO DE CPF / CNPJ */}
+          <CampoCpf value={cpfCliente} erro={erroCpf} onChange={handleCpfChange} />
+
+          {/* LISTA DE ITENS */}
+          <div className="bg-white rounded-2xl p-4 shadow-lg space-y-2">
+            <h3 className="font-extrabold text-xs uppercase text-slate-800 flex items-center gap-1.5">
+              🛍️ Itens no Carrinho ({venda.getItens().length})
+            </h3>
+            <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
+              {venda.getItens().map((item, idx) => (
+                <div key={idx} className="py-2 flex justify-between text-xs">
+                  <span className="font-extrabold text-slate-800">{item.quantidade}x {item.nome}</span>
+                  <span className="font-black font-mono">
+                    {(item.quantidade * item.precoUnitario).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  </span>
                 </div>
               ))}
-              <div className="border-t pt-1 font-bold flex justify-between">
-                <span>TOTAL:</span>
-                <span>R$ {dadosVendaFinal.total.toFixed(2)}</span>
-              </div>
             </div>
+          </div>
 
-            <p className="text-center text-sm font-medium text-slate-700">
-              Deseja imprimir o cupom impresso para o cliente?
-            </p>
+          {/* BOTÕES DE AÇÃO */}
+          <div className="pt-2 flex gap-3">
+            <Button onClick={() => navigate("/pdv")} disabled={salvandoVenda} className="w-1/3 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs rounded-xl">
+              ← Voltar
+            </Button>
+            <Button onClick={handleFinalizarVenda} disabled={salvandoVenda || venda.getItens().length === 0} className="w-2/3 bg-cyan-300 hover:bg-cyan-200 text-slate-950 font-black text-sm uppercase rounded-xl">
+              {salvandoVenda ? "⏳ Gravando Venda..." : "✓ Concluir e Gravar Venda"}
+            </Button>
+          </div>
+        </div>
+      </div>
 
-            <div className="flex flex-col gap-2 pt-2">
-              <Button 
-                onClick={handleAcaoImprimir} 
-                disabled={imprimindo} 
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white"
-              >
-                {imprimindo ? "Imprimindo..." : "🖨️ Imprimir Cupom"}
+      {/* MODAIS COMPONENTIZADOS */}
+      {modalAberto && dadosVendaFinal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4 border-4 border-cyan-400">
+            <h2 className="text-xl font-extrabold text-slate-900 text-center">Venda #{dadosVendaFinal.idVenda} Concluída!</h2>
+            <div className="flex flex-col gap-2.5">
+              <Button onClick={() => navigate("/pdv")} className="w-full bg-cyan-500 text-slate-950 font-black text-xs rounded-xl">🖨️ Imprimir Cupom</Button>
+              <Button onClick={handleEmitirNfce} disabled={emitindoNfce} className="w-full bg-emerald-500 text-white font-black text-xs uppercase rounded-xl">
+                {emitindoNfce ? "⚙️ Processando..." : "🧾 Emitir Nota Fiscal (NFC-e)"}
               </Button>
-
-              <Button 
-                variant="outline" 
-                onClick={handleAcaoNaoImprimir} 
-                disabled={imprimindo} 
-                className="w-full text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-              >
-                🌱 Não Imprimir (Concluir & Economizar Papel)
-              </Button>
+              <Button variant="outline" onClick={() => navigate("/pdv")} className="w-full text-emerald-700 border-2 border-emerald-300 rounded-xl">🌱 Concluir sem Imprimir</Button>
             </div>
           </div>
         </div>
       )}
+
+      <ModalDanfePdf url={urlDanfeModal} onConfirmarEFechar={handleBaixarEConcluir} />
     </div>
   );
 }

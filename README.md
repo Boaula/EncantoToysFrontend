@@ -147,3 +147,12 @@ Sufixo: Os últimos 9 dígitos do carimbo de data/hora atual em milissegundos (D
 
 📜 Licença
 Este projeto é de uso privado para o sistema de gestão de vendas e estoque Encanto Toys.
+
+
+# 📌 Lembrete Rápido: Rodando TAURI no Terminal Nativo para poder exibir a Danf da Nota Fiscal
+Por que essa solução funciona?
+
+O terminal integrado do VS Code (quando instalado via Snap) força o uso de bibliotecas de sistema antigas que conflitam com o WebKitGTK e o Tauri. Abrindo o app pelo aplicativo de Terminal do seu Linux, o projeto roda com as bibliotecas nativas atualizadas do sistema, sem interferência do Snap.
+
+Abra o Terminal do Linux (Ctrl + Alt + T) e rode:
+cd ~/Documentos/SOFTWARE_EncantoToys/encanto-toys-frontend && pnpm exec tauri dev

@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { LayoutDashboard, ShoppingCart, Home, Package, LogOut, Users } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Home, Package, LogOut, Users, FileText } from "lucide-react";
 import logoEncanto from "../../assets/EncantoToys.png";
 import logoMHS from "../../assets/LogoMHS.png";
 import { pdvService } from "../../services/api";
@@ -63,7 +63,7 @@ export function Layout() {
     <div className="flex h-screen bg-background">
       <CardHistoricoFlutuante />
       {/* Sidebar */}
-      <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
+      <aside className="w-64 bg-[#FFF0E6] border-r border-[#F3D5C0] flex flex-col">
         <div className="p-6 border-b border-sidebar-border">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
@@ -110,7 +110,7 @@ export function Layout() {
             <Link to="/gestao-estoque">
               <Button
                 variant={isActive("/gestao-estoque") ? "default" : "ghost"}
-                className="w-full justify-start gap-3 border border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10"
+                className="w-full justify-start gap-3 border border-dashed border-primary/70 bg-primary/5 hover:bg-primary/20"
               >
                 <Users className="w-5 h-5 text-primary" />
                 <span className="font-bold text-primary">Estoque</span>
@@ -122,10 +122,22 @@ export function Layout() {
             <Link to="/admin">
               <Button
                 variant={isActive("/admin") ? "default" : "ghost"}
-                className="w-full justify-start gap-3 border border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10"
+                className="w-full justify-start gap-3 border border-dashed border-primary/50 bg-primary/5 hover:bg-primary/20"
               >
                 <Users className="w-5 h-5 text-primary" />
                 <span className="font-bold text-primary">Painel Admin</span>
+              </Button>
+            </Link>
+          )}
+
+          {(cargo === "ADMIN" || cargo === "GERENTE") && (
+            <Link to="/configuracao_fiscal">
+              <Button
+                variant={isActive("/configuracao_fiscal") ? "default" : "ghost"}
+                className="w-full justify-start gap-3 border border-dashed border-primary/40 bg-primary/5 hover:bg-primary/20"
+              >
+                <FileText className="w-5 h-5 text-orange-500" />
+                <span className="font-bold text-primary">Configuração Fiscal</span>
               </Button>
             </Link>
           )}

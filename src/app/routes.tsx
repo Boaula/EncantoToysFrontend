@@ -9,6 +9,7 @@ import { CheckoutPDV } from "./pages/CheckoutPDV";
 import { CadastroProduto } from "./pages/CadastroProduto";
 import { HistoricoVendas } from "./pages/HistoricoVendas";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { ConfiguracaoFiscal } from "./pages/ConfiguracaoFiscal"; // import Fiscal
 
 export const router = createBrowserRouter([
   // 🔓 Rota Pública: Tela de Login
@@ -51,6 +52,15 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedCargos={["ADMIN", "GERENTE"]}>
             <CadastroProduto />
+          </ProtectedRoute>
+        ),
+      },
+      //NOVA ROTA TRIBUTÁRIA / FISCAL
+      {
+        path: "configuracao_fiscal",
+        element: (
+          <ProtectedRoute allowedCargos={["ADMIN", "GERENTE"]}>
+            <ConfiguracaoFiscal />
           </ProtectedRoute>
         ),
       },

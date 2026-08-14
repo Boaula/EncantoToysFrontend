@@ -1,4 +1,26 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const FISCAL_STORAGE_KEY = "@EncantoToys:fiscal-config";
+
+const readLocalFiscalConfig = (): EmpresaFiscalPayload | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const saved = localStorage.getItem(FISCAL_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeLocalFiscalConfig = (payload: EmpresaFiscalPayload) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(FISCAL_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignora falhas de persistência local
+  }
+};
 
 // --- INTERFACES DO PDV ---
 export interface Product {
@@ -54,6 +76,16 @@ export interface ItemVendaHistorico {
   subtotal: number;
 }
 
+// Ajuste financeiro
+export interface VendaAjuste {
+  id: number;
+  tipo: "DESCONTO" | "ACRESCIMO";
+  forma_calculo: "R$" | "%";
+  valor_informado: number;
+  valor_aplicado: number;
+}
+
+
 export interface VendaHistorico {
   id: number;
   uuid: string;
@@ -65,7 +97,10 @@ export interface VendaHistorico {
   usuario_id?: number;
   nome_usuario?: string;
   itens: ItemVendaHistorico[];
+  ajustes?: VendaAjuste[];
 }
+
+
 
 export interface FiltrosHistorico {
   data_inicio?: string;
@@ -74,6 +109,39 @@ export interface FiltrosHistorico {
   sincronizado?: boolean;
   limit?: number;
   offset?: number;
+}
+
+// --- INTERFACES FISCAIS ---
+export interface EmpresaFiscalPayload {
+  cnpj: string;
+  razao_social: string;
+  nome_fantasia?: string;
+  inscricao_estadual: string;
+  crt: number;
+  cnae_principal: string;
+  email: string;
+  telefone: string;
+  logradouro: string;
+  numero: string;
+  complemento?: string;
+  bairro: string;
+  municipio: string;
+  codigo_ibge: string;
+  uf: string;
+  cep: string;
+  ambiente: number;
+  serie_nfce: number;
+  proxima_nota_nfce: number;
+  csc_id?: string;
+  csc_token?: string;
+}
+
+// --- INTERFACES DO CERTIFICADO DIGITAL ---
+export interface CertificadoResponse {
+  id?: number;
+  mensagem?: string;
+  vencimento?: string;
+  arquivo_path?: string;
 }
 
 // ==========================================
@@ -230,7 +298,7 @@ export const pdvService = {
     return response.json();
   },
 
-// 🟢 REGISTRAR VENDA (Com tratamento correto de erro 422)
+//REGISTRAR VENDA (Com tratamento correto de erro 422)
   registrarVenda: async (payload: VendaPayload) => {
     const token = localStorage.getItem("@EncantoToys:token");
     const response = await fetch(`${API_URL}/vendas/`, {
@@ -340,6 +408,161 @@ export const pdvService = {
 
     if (!response.ok) {
       throw new Error("Erro ao carregar detalhes da venda.");
+    }
+
+    return response.json();
+  },
+};
+
+// ==========================================
+// SERVIÇO FISCAL
+// ==========================================
+export const fiscalService = {
+  // Dispara a emissão na Focus/SEFAZ para uma venda já salva
+  // Passa o cpfCliente opcional no body para o backend
+  emitirNfce: async (vendaId: number, cpfCliente?: string) => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    const response = await fetch(`${API_URL}/fiscal/emitir-nfce/${vendaId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        cpf_cliente: cpfCliente || null,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+
+      if (Array.isArray(errorData.detail)) {
+        const mensagens = errorData.detail
+          .map((err: any) => `${err.loc.join('.')}: ${err.msg}`)
+          .join(" | ");
+        throw new Error(`Validação SEFAZ/Backend: ${mensagens}`);
+      }
+
+      throw new Error(errorData.detail || "Erro ao emitir NFC-e na SEFAZ.");
+    }
+
+    return response.json();
+  },
+
+
+  obterConfiguracoes: async (): Promise<EmpresaFiscalPayload | null> => {
+    try {
+      const token = localStorage.getItem("@EncantoToys:token");
+      const response = await fetch(`${API_URL}/fiscal/empresa/`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 404 || response.status === 405) {
+        return readLocalFiscalConfig();
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Falha ao carregar configurações fiscais.");
+      }
+
+      const data = await response.json();
+      writeLocalFiscalConfig(data);
+      return data;
+    } catch (error: any) {
+      const localData = readLocalFiscalConfig();
+      if (localData) {
+        return localData;
+      }
+
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+
+      throw new Error("Falha ao carregar configurações fiscais.");
+    }
+  },
+
+  salvarConfiguracoes: async (payload: EmpresaFiscalPayload) => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    const response = await fetch(`${API_URL}/fiscal/empresa/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.status === 404 || response.status === 405) {
+      writeLocalFiscalConfig(payload);
+      return payload;
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Erro ao salvar configurações fiscais.");
+    }
+
+    const data = await response.json();
+    writeLocalFiscalConfig(data);
+    return data;
+  },
+
+  // ENVIAR CERTIFICADO A1 (PFX/P12 + SENHA)
+  enviarCertificado: async (arquivo: File, senha: string): Promise<CertificadoResponse> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    
+    // Criando o FormData obrigatório para upload de arquivos
+    const formData = new FormData();
+    formData.append("arquivo", arquivo);
+    formData.append("senha", senha);
+
+    // NOTA: Ao enviar FormData com fetch, NÃO definimos "Content-Type".
+    // O navegador define o boundary correto automaticamente!
+    const response = await fetch(`${API_URL}/fiscal/empresa/certificado/`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      
+      if (Array.isArray(errorData.detail)) {
+        const mensagens = errorData.detail
+          .map((err: any) => `${err.loc.join('.')}: ${err.msg}`)
+          .join(" | ");
+        throw new Error(`Validação Backend: ${mensagens}`);
+      }
+
+      throw new Error(errorData.detail || "Erro ao enviar certificado digital.");
+    }
+
+    return response.json();
+  },
+
+  // VERIFICAR STATUS DO CERTIFICADO CADASTRADO
+  obterCertificado: async (): Promise<CertificadoResponse | null> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    const response = await fetch(`${API_URL}/fiscal/empresa/certificado/`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new Error("Erro ao buscar dados do certificado.");
     }
 
     return response.json();

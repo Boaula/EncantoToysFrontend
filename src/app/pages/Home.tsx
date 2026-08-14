@@ -15,21 +15,22 @@ import {
   Clock,
   BarChart2,
   RefreshCw,
+  User,
+  Lock,
 } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 
 /* ── tokens for the orange login panel ── */
 const P = {
-  bg: "#FFCC9F",
-  heading: "#4A2C10",
-  label: "#4A2C10",
-  muted: "#333333",
-  inputBg: "rgba(255,255,255,0.15)",
-  inputBorder: "#333333",
-  inputFocus: "rgba(255,255,255,0.85)",
-  btnBg: "#FFFFFF",
-  btnHover: "#FFF0E8",
-  footerBorder: "rgba(255,255,255,0.20)",
+  bg: "linear-gradient(180deg, #ffd7ba 25%, #FFEBDC 100%)",
+  cardBorder: "#F3D5C0",
+  heading: "#2D1A0E",
+  label: "#4A2D1B",
+  muted: "#7A5C49",
+  inputBg: "#FFFFFF",
+  inputBorder: "#E8CEBD",
+  inputFocus: "#FF6B35",
+  footerBorder: "rgba(74, 45, 27, 0.10)",
 };
 
 export function Home() {
@@ -165,45 +166,50 @@ export function Home() {
 
   return (
     <div className="min-h-screen flex overflow-hidden" style={{ background: "#f0f0f4" }}>
-      {/* ══ LEFT: Login Panel ══════════════════════════ */}
+      {/* ══ LEFT: Login Panel ════════════ */}
+{/* ══ LEFT: Login Panel ══════════════════════════ */}
       <motion.div
         initial={{ opacity: 0, x: -24 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.45 }}
-        className="relative flex flex-col w-full max-w-[420px] min-h-screen shadow-2xl z-10"
-        style={{ background: P.bg }}
+        className="relative flex flex-col w-full max-w-[430px] min-h-screen shadow-2xl z-10 border-r"
+        style={{ background: P.bg, borderColor: P.cardBorder }}
       >
-        <div className="h-1 w-full bg-gradient-to-r from-[#C47A00] via-[#FF6B35] to-[#00C9A7]" />
+        {/* Linha decorativa no topo com as cores da marca */}
+        <div className="h-1.5 w-full bg-gradient-to-r from-[#FF6B35] via-[#FFB84D] to-[#00C9A7]" />
 
-        <div className="flex flex-col flex-1 px-10 py-10">
-          <div className="flex items-center gap-3 mb-12">
-            <div className="w-11 h-11 rounded-xl bg-white/20 border border-white/30 flex items-center justify-center shadow-lg">
-              <img src={logoEncanto} alt="Logo Encanto Toys" className="w-full h-full object-contain aspect-square" />
+        <div className="flex flex-col flex-1 px-10 py-10 justify-center">
+          {/* Badge da Marca / Logo */}
+          <div className="flex items-center gap-3.5 mb-10">
+            <div className="w-12 h-12 rounded-2xl bg-white border border-amber-100 flex items-center justify-center shadow-sm p-1.5">
+              <img src={logoEncanto} alt="Logo Encanto Toys" className="w-full h-full object-contain" />
             </div>
             <div>
-              <p className="text-base font-bold leading-none" style={{ color: P.heading }}>
+              <p className="text-lg font-black tracking-tight leading-none" style={{ color: P.heading }}>
                 Encanto Toys
               </p>
-              <p className="text-xs" style={{ color: P.muted }}>
+              <p className="text-xs font-semibold mt-1 tracking-wide uppercase opacity-75" style={{ color: P.muted }}>
                 Sistema de PDV
               </p>
             </div>
           </div>
 
+          {/* Cabeçalho de Boas-Vindas */}
           <motion.div
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.06 }}
             className="mb-8"
           >
-            <h1 className="text-3xl font-extrabold tracking-tight leading-tight mb-1" style={{ color: P.heading }}>
+            <h1 className="text-3xl font-extrabold tracking-tight leading-tight mb-2" style={{ color: P.heading }}>
               Olá, bem-vindo!
             </h1>
-            <p className="text-sm" style={{ color: P.muted }}>
-              Identifique-se para acessar o sistema.
+            <p className="text-sm font-medium" style={{ color: P.muted }}>
+              Identifique-se para acessar o caixa.
             </p>
           </motion.div>
 
+          {/* Form de Login */}
           <motion.form
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
@@ -211,53 +217,71 @@ export function Home() {
             onSubmit={handleSubmit}
             className="flex flex-col gap-5"
           >
+            {/* Campo Usuário */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold" style={{ color: P.label }}>
+              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: P.label }}>
                 Usuário
               </label>
-              <input
-                ref={loginRef}
-                type="text"
-                value={login}
-                onChange={(e) => setLogin(e.target.value)}
-                placeholder="Ex: jessica"
-                autoComplete="username"
-                className="w-full rounded-xl px-4 py-3 text-sm outline-none transition placeholder:text-black/50"
-                style={{
-                  background: P.inputBg,
-                  border: `1.5px solid ${P.inputBorder}`,
-                  color: P.heading,
-                }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = P.inputFocus)}
-                onBlur={(e) => (e.currentTarget.style.borderColor = P.inputBorder)}
-              />
+              <div className="relative flex items-center">
+                <User className="w-4 h-4 absolute left-3.5 pointer-events-none transition-colors" style={{ color: P.muted }} />
+                <input
+                  ref={loginRef}
+                  type="text"
+                  value={login}
+                  onChange={(e) => setLogin(e.target.value)}
+                  placeholder="Ex: jessica"
+                  autoComplete="username"
+                  className="w-full rounded-xl pl-10 pr-4 py-3 text-sm font-medium outline-none transition-all shadow-sm placeholder:text-neutral-400"
+                  style={{
+                    background: P.inputBg,
+                    border: `1.5px solid ${P.inputBorder}`,
+                    color: P.heading,
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.borderColor = P.inputFocus;
+                    e.currentTarget.style.boxShadow = "0 0 0 3px rgba(255, 107, 53, 0.15)";
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor = P.inputBorder;
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                />
+              </div>
             </div>
 
+            {/* Campo Senha */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold" style={{ color: P.label }}>
+              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: P.label }}>
                 Senha
               </label>
-              <div className="relative">
+              <div className="relative flex items-center">
+                <Lock className="w-4 h-4 absolute left-3.5 pointer-events-none transition-colors" style={{ color: P.muted }} />
                 <input
                   type={showPwd ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="w-full rounded-xl px-4 py-3 pr-12 text-sm outline-none transition placeholder:text-black/50"
+                  className="w-full rounded-xl pl-10 pr-11 py-3 text-sm font-medium outline-none transition-all shadow-sm placeholder:text-neutral-400"
                   style={{
                     background: P.inputBg,
                     border: `1.5px solid ${P.inputBorder}`,
                     color: P.heading,
                   }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = P.inputFocus)}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = P.inputBorder)}
+                  onFocus={(e) => {
+                    e.currentTarget.style.borderColor = P.inputFocus;
+                    e.currentTarget.style.boxShadow = "0 0 0 3px rgba(255, 107, 53, 0.15)";
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor = P.inputBorder;
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
                 />
                 <button
                   type="button"
                   tabIndex={-1}
                   onClick={() => setShowPwd((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 transition"
+                  className="absolute right-3.5 hover:opacity-80 transition"
                   style={{ color: P.muted }}
                 >
                   {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -265,55 +289,50 @@ export function Home() {
               </div>
             </div>
 
+            {/* Mensagem de Erro */}
             {error && (
-              <motion.p
+              <motion.div
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-xs font-medium flex items-center gap-1.5 text-red-700"
+                className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold flex items-center gap-2 text-red-700"
               >
-                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                {error}
-              </motion.p>
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-600" />
+                <span>{error}</span>
+              </motion.div>
             )}
 
+            {/* Botão Entrar */}
             <button
               type="submit"
               disabled={loading || !login || !password}
-              className="mt-1 w-full rounded-xl font-bold py-3 flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: P.btnBg, color: "#F05A1A" }}
-              onMouseEnter={(e) => {
-                if (!loading) e.currentTarget.style.background = P.btnHover;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = P.btnBg;
-              }}
+              className="mt-2 w-full rounded-xl font-bold py-3.5 flex items-center justify-center gap-2 text-white shadow-lg shadow-orange-500/20 transition-all hover:shadow-orange-500/30 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none bg-gradient-to-r from-[#FF6B35] to-[#F05A1A]"
             >
               {loading ? (
-                <span className="w-4 h-4 rounded-full border-2 border-[#F05A1A]/30 border-t-[#F05A1A] animate-spin" />
+                <span className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
               ) : (
                 <>
                   <LogIn className="w-4 h-4" />
-                  Entrar no Sistema
+                  <span>Entrar no Sistema</span>
                 </>
               )}
             </button>
           </motion.form>
         </div>
 
+        {/* Rodapé com Horário e Versão */}
         <div
-          className="px-10 py-5 flex items-center justify-between text-[11px]"
+          className="px-10 py-4 flex items-center justify-between text-[11px] font-medium"
           style={{ borderTop: `1px solid ${P.footerBorder}`, color: P.muted }}
         >
-          <span>PDV v1.0</span>
+          <span className="bg-white/60 px-2 py-0.5 rounded-md border border-amber-900/5">PDV v1.0</span>
           <div className="flex items-center gap-1.5">
-            <Clock className="w-3 h-3" />
-            <span className="font-mono">{timeStr}</span>
-            <span className="mx-1 opacity-40">·</span>
+            <Clock className="w-3.5 h-3.5" />
+            <span className="font-mono font-bold">{timeStr}</span>
+            <span className="mx-0.5 opacity-40">·</span>
             <span className="capitalize">{dateStr}</span>
           </div>
         </div>
       </motion.div>
-
       {/* ══ RIGHT: Dashboard Preview ════════════════════════════ */}
       <div className="flex flex-1 flex-col p-8 gap-5 overflow-auto">
         <motion.div

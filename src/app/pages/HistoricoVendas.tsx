@@ -364,6 +364,36 @@ export function HistoricoVendas() {
 
             {/* Total e Botões */}
             <div className="border-t border-slate-100 pt-3 space-y-3">
+              
+              {/* 🟢 NOVO: EXIBIÇÃO DOS AJUSTES FINANCEIROS (DESCONTO / ACRÉSCIMO) */}
+              {vendaSelecionada.ajustes && vendaSelecionada.ajustes.length > 0 && (
+                <div className="bg-slate-50 p-2.5 rounded-xl space-y-1.5 text-xs">
+                  {vendaSelecionada.ajustes.map((aj) => (
+                    <div key={aj.id} className="flex justify-between items-center">
+                      <span className="text-slate-600 font-medium flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            aj.tipo === "DESCONTO" ? "bg-red-500" : "bg-emerald-500"
+                          }`}
+                        />
+                        {aj.tipo === "DESCONTO" ? "Desconto Aplicado" : "Acréscimo Aplicado"}
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          ({aj.forma_calculo === "%" ? `${aj.valor_informado}%` : "Valor Fixo"})
+                        </span>
+                      </span>
+                      <span
+                        className={`font-bold ${
+                          aj.tipo === "DESCONTO" ? "text-red-600" : "text-emerald-600"
+                        }`}
+                      >
+                        {aj.tipo === "DESCONTO" ? "- " : "+ "}
+                        R$ {Number(aj.valor_aplicado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex justify-between items-center">
                 <span className="text-sm font-bold text-slate-600">VALOR TOTAL</span>
                 <span className="text-lg font-black text-emerald-600">

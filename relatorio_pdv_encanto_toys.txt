@@ -1,0 +1,190 @@
+RELATÓRIO DE FUNCIONALIDADES DO SISTEMA PDV ENCANTO TOYS
+=========================================================
+
+Apresentação geral
+-----------------
+Este sistema PDV foi desenvolvido para oferecer uma operação de caixa moderna, rápida e organizada para a loja Encanto Toys. Ele reúne funcionalidades de login, vendas, gestão de estoque, histórico financeiro, controle de caixas e integração com impressão de cupons, tudo em uma interface visual amigável e pronta para uso em operação diária.
+
+1. Tela de Login e autenticação
+--------------------------------
+O sistema inicia com uma tela de login simples e profissional, onde o operador informa usuário e senha para acessar o ambiente do PDV.
+
+Funcionalidades principais:
+- Autenticação de usuários com backend.
+- Armazenamento seguro do token de acesso no navegador.
+- Redirecionamento automático para o PDV após login bem-sucedido.
+- Identificação do operador e do cargo no sistema.
+
+Valor para o negócio:
+- Garante acesso controlado ao sistema.
+- Evita uso indevido do caixa por pessoas não autorizadas.
+
+2. Ponto de Venda (PDV)
+------------------------
+A principal tela do sistema é o PDV, criada para agilizar a venda no dia a dia.
+
+Funcionalidades principais:
+- Busca rápida de produtos por nome, categoria ou código de barras.
+- Listagem de produtos disponíveis diretamente do backend.
+- Adição de produtos ao carrinho com apenas um clique.
+- Controle de quantidade por item.
+- Remoção de itens e limpeza do carrinho.
+- Cálculo automático do total da compra.
+- Finalização da venda com escolha de forma de pagamento.
+- Atalhos de teclado para acelerar o processo:
+  - F2: focar na busca
+  - F3: limpar carrinho
+  - F4: finalizar venda
+
+Valor para o negócio:
+- Reduz o tempo de atendimento.
+- Melhora a experiência do operador.
+- Torna o processo de venda mais fluido e profissional.
+
+3. Formas de pagamento
+-----------------------
+O PDV permite a escolha de diferentes formas de pagamento para a conclusão da venda.
+
+Formas disponíveis:
+- Dinheiro
+- Cartão de Crédito
+- Cartão de Débito
+- PIX
+
+Valor para o negócio:
+- Aumenta a flexibilidade de pagamento para o cliente.
+- Garante maior conveniência no atendimento.
+
+4. Finalização da venda e emissão de cupom
+------------------------------------------
+Após escolher a forma de pagamento, o sistema encaminha o processo para o checkout, onde a venda é finalizada.
+
+Funcionalidades principais:
+- Montagem do payload de venda com itens, valores e forma de pagamento.
+- Envio das informações para o backend.
+- Geração de uma pré-visualização do cupom.
+- Opção de imprimir o cupom via integração com impressora térmica.
+- Possibilidade de concluir sem imprimir, caso o usuário queira economizar papel.
+
+Valor para o negócio:
+- Fecha a venda de maneira organizada.
+- Ajuda na padronização do atendimento.
+- Gera um registro formal da operação.
+
+5. Histórico de vendas
+----------------------
+O sistema conta com uma área dedicada ao histórico de vendas, permitindo consultar tudo o que foi vendido no período desejado.
+
+Funcionalidades principais:
+- Visualização de vendas registradas.
+- Filtros por data inicial, data final e forma de pagamento.
+- Busca por ID da venda ou nome do operador.
+- Exibição de métricas importantes:
+  - total vendido
+  - quantidade de transações
+  - ticket médio
+- Visualização detalhada de cada venda, com itens e valores.
+- Reimpressão de cupom.
+
+Valor para o negócio:
+- Facilita o controle financeiro da loja.
+- Ajuda a acompanhar o desempenho diário e semanal.
+- Dá mais visibilidade para decisões de gestão.
+
+6. Dashboard e visão geral do negócio
+-------------------------------------
+O sistema possui um painel com indicadores importantes para análise rápida do desempenho.
+
+Funcionalidades principais:
+- Total de vendas do dia.
+- Quantidade de itens vendidos.
+- Ticket médio.
+- Produtos com estoque crítico.
+- Gráficos de vendas por hora.
+- Gráficos de distribuição por forma de pagamento.
+
+Valor para o negócio:
+- Ajuda o gestor a entender o movimento da loja em tempo real.
+- Permite tomar decisões mais rápidas sobre estoque e operação.
+
+7. Gestão de estoque
+--------------------
+A gestão de estoque faz parte do sistema para auxiliar o controle dos produtos em loja.
+
+Funcionalidades principais:
+- Listagem completa dos produtos.
+- Busca rápida por produto.
+- Edição de nome, preço, estoque e categoria.
+- Exclusão de produtos.
+- Identificação visual de estoque crítico.
+- Acesso direto para cadastrar novos produtos.
+
+Valor para o negócio:
+- Evita falta de produtos importantes.
+- Facilita o controle de preços e quantidade disponível.
+- Torna a operação administrativa mais prática.
+
+8. Cadastro de produtos
+-----------------------
+Há uma tela específica para cadastrar novos produtos no sistema.
+
+Funcionalidades principais:
+- Cadastro de nome, preço, estoque inicial, categoria e código de barras.
+- Geração automática de código interno quando necessário.
+- Validação de campos obrigatórios.
+- Feedback visual de sucesso ou erro.
+
+Valor para o negócio:
+- Permite incluir novos itens no catálogo de forma rápida.
+- Reduz erros na entrada de dados.
+
+9. Painel administrativo
+------------------------
+O sistema também oferece um painel administrativo para controle de equipe e caixas.
+
+Funcionalidades principais:
+- Cadastro de novos operadores.
+- Definição de cargo e nível de acesso.
+- Gerenciamento de caixas/PDVs.
+- Edição de tags ou nomes dos caixas.
+- Visualização do status de abertura/fechamento de cada caixa.
+
+Valor para o negócio:
+- Organiza o controle de equipe e de operação.
+- Dá mais autonomia para gestão do negócio.
+
+10. Integração com Tauri e impressão
+------------------------------------
+O sistema foi pensado para funcionar também como aplicação desktop, com integração nativa via Tauri.
+
+Funcionalidades principais:
+- Uso de comandos nativos para impressão de cupons.
+- Compatibilidade com impressão térmica.
+- Ajuste de comunicação com impressora para ambiente desktop.
+
+Valor para o negócio:
+- Aproxima o sistema de uma solução mais completa e profissional.
+- Melhora a experiência em operação real de loja.
+
+11. Experiência do usuário e usabilidade
+----------------------------------------
+A interface possui uma proposta moderna e amigável, com foco em rapidez e claridade no uso do caixa.
+
+Aspectos destacados:
+- Layout limpo e organizado.
+- Feedback visual com notificações e mensagens.
+- Componentes visuais modernos.
+- Navegação entre telas com rotas bem definidas.
+- Atalhos e ações rápidas para operadores.
+
+12. Destaques comerciais para apresentar à cliente
+-------------------------------------------------
+O sistema PDV da Encanto Toys entrega uma solução completa para loja, com foco em:
+- agilidade nas vendas;
+- controle do estoque;
+- organização do histórico financeiro;
+- gestão de equipe;
+- integração com impressão de cupons;
+- visão geral do negócio em dashboards.
+
+Em resumo, o sistema não é apenas um caixa eletrônico, mas uma ferramenta completa de gestão operacional para a loja, com potencial para crescer e ganhar mais automações no futuro.

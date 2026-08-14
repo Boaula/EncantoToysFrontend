@@ -10,6 +10,7 @@ import { pdvService, type Product, type CartItem } from "../../services/api";
 import { Search, X, CreditCard, Banknote, Smartphone, Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { ModalCalculadoraTroco } from "../components/ModalCalculadoraTroco";
 
 
 export function PDV() {
@@ -21,6 +22,9 @@ export function PDV() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Novo estado para controlar o modal de troco:
+  const [showCashModal, setShowCashModal] = useState(false);
 
 
   // Focus search on mount
@@ -146,12 +150,33 @@ export function PDV() {
 
     setShowPaymentDialog(false);
 
-    // Navega para a tela de checkout passando os dados do estado
+    if (method === "Dinheiro") {
+      // Abre o modal de troco
+      setShowCashModal(true);
+    } else {
+      // Para cartão/PIX, navega direto sem troco
+      navigate("/checkout", {
+        state: {
+          cart: cart,
+          total: getTotal(),
+          paymentMethod: method,
+          valorPago: getTotal(),
+          troco: 0,
+        },
+      });
+    }
+  };
+
+  const handleConfirmCashPayment = (valorPago: number, troco: number) => {
+    setShowCashModal(false);
+
     navigate("/checkout", {
       state: {
         cart: cart,
         total: getTotal(),
-        paymentMethod: method,
+        paymentMethod: "Dinheiro",
+        valorPago: valorPago,
+        troco: troco,
       },
     });
   };
@@ -426,6 +451,14 @@ export function PDV() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 🟢 Adicione o novo ModalCalculadoraTroco ao final do seu JSX */}
+      <ModalCalculadoraTroco
+        isOpen={showCashModal}
+        onClose={() => setShowCashModal(false)}
+        totalVenda={getTotal()}
+        onConfirm={handleConfirmCashPayment}
+      />
     </div>
   );
 }
