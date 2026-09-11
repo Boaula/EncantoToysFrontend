@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
-import logoEncanto from "../../assets/EncantoToys.png";
+import { LogoEncantoAnimada } from "../components/LogoEncantoAnimada";
 import { authService, pdvService, Product, VendaHistorico } from "../../services/api";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -22,15 +22,15 @@ import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 
 /* ── tokens for the orange login panel ── */
 const P = {
-  bg: "linear-gradient(180deg, #ffd7ba 25%, #FFEBDC 100%)",
-  cardBorder: "#F3D5C0",
-  heading: "#2D1A0E",
-  label: "#4A2D1B",
-  muted: "#7A5C49",
-  inputBg: "#FFFFFF",
-  inputBorder: "#E8CEBD",
-  inputFocus: "#FF6B35",
-  footerBorder: "rgba(74, 45, 27, 0.10)",
+  bg: "var(--card)",
+  cardBorder: "var(--border)",
+  heading: "var(--foreground)",
+  label: "var(--foreground)",
+  muted: "var(--muted-foreground)",
+  inputBg: "var(--input-background)",
+  inputBorder: "var(--border)",
+  inputFocus: "var(--primary)",
+  footerBorder: "var(--border)",
 };
 
 export function Home() {
@@ -93,9 +93,10 @@ export function Home() {
     try {
       const dados = await authService.login(login.trim(), password);
 
-      localStorage.setItem("@EncantoToys:token", dados.access_token);
-      localStorage.setItem("@EncantoToys:cargo", dados.cargo);
-      localStorage.setItem("@EncantoToys:username", login.trim().toLowerCase());
+        localStorage.setItem("@EncantoToys:token", dados.access_token);
+        localStorage.setItem("@EncantoToys:cargo", dados.cargo);
+        localStorage.setItem("@EncantoToys:username", login.trim().toLowerCase());
+        localStorage.setItem("@EncantoToys:usuario_id", String(dados.usuario_id));
 
       try {
         let nomeDaMaquina = "MAQUINA_DESCONHECIDA";
@@ -172,8 +173,10 @@ export function Home() {
         initial={{ opacity: 0, x: -24 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.45 }}
-        className="relative flex flex-col w-full max-w-[430px] min-h-screen shadow-2xl z-10 border-r"
-        style={{ background: P.bg, borderColor: P.cardBorder }}
+        style={{
+          background: P.bg,
+          borderColor: P.cardBorder
+        }}
       >
         {/* Linha decorativa no topo com as cores da marca */}
         <div className="h-1.5 w-full bg-gradient-to-r from-[#FF6B35] via-[#FFB84D] to-[#00C9A7]" />
@@ -181,14 +184,20 @@ export function Home() {
         <div className="flex flex-col flex-1 px-10 py-10 justify-center">
           {/* Badge da Marca / Logo */}
           <div className="flex items-center gap-3.5 mb-10">
-            <div className="w-12 h-12 rounded-2xl bg-white border border-amber-100 flex items-center justify-center shadow-sm p-1.5">
-              <img src={logoEncanto} alt="Logo Encanto Toys" className="w-full h-full object-contain" />
-            </div>
+            <LogoEncantoAnimada largura={200} />
+
             <div>
-              <p className="text-lg font-black tracking-tight leading-none" style={{ color: P.heading }}>
+              <p
+                className="text-lg font-black tracking-tight leading-none"
+                style={{ color: P.heading }}
+              >
                 Encanto Toys
               </p>
-              <p className="text-xs font-semibold mt-1 tracking-wide uppercase opacity-75" style={{ color: P.muted }}>
+
+              <p
+                className="text-xs font-semibold mt-1 tracking-wide uppercase opacity-75"
+                style={{ color: P.muted }}
+              >
                 Sistema de PDV
               </p>
             </div>
@@ -305,7 +314,10 @@ export function Home() {
             <button
               type="submit"
               disabled={loading || !login || !password}
-              className="mt-2 w-full rounded-xl font-bold py-3.5 flex items-center justify-center gap-2 text-white shadow-lg shadow-orange-500/20 transition-all hover:shadow-orange-500/30 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none bg-gradient-to-r from-[#FF6B35] to-[#F05A1A]"
+              className="mt-2 w-full rounded-xl font-bold py-3.5 flex items-center justify-center gap-2 text-white 
+                shadow-lg shadow-orange-500/20 transition-all hover:shadow-orange-500/30 hover:-translate-y-0.5 
+                active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 
+                disabled:shadow-none bg-primary hover:bg-primary/90"
             >
               {loading ? (
                 <span className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />

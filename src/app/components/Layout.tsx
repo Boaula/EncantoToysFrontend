@@ -1,11 +1,13 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LayoutDashboard, ShoppingCart, Home, Package, LogOut, Users, FileText } from "lucide-react";
 import logoEncanto from "../../assets/EncantoToys.png";
+import { LogoEncantoAnimada } from "./LogoEncantoAnimada";
 import logoMHS from "../../assets/LogoMHS.png";
 import { pdvService } from "../../services/api";
 import { CardHistoricoFlutuante } from "./CardHistoricoFlutuante";
+
 
 import { Button } from "./ui/button";
 
@@ -15,6 +17,17 @@ export function Layout() {
 
   const username = localStorage.getItem("@EncantoToys:username") || "Admin";
   const cargo = localStorage.getItem("@EncantoToys:cargo") || "OPERADOR";
+
+// ============================================================
+// LICENÇA DO SISTEMA
+// ============================================================
+const [licenca, setLicenca] = useState<any>(null);
+const [tempoRestante, setTempoRestante] = useState({
+  dias: 0,
+  horas: 0,
+  minutos: 0,
+  segundos: 0,
+});  
 
   const handleLogout = async () => {
     try {
@@ -53,6 +66,77 @@ export function Layout() {
     return () => window.removeEventListener("keydown", handler);
   }, [navigate]);
 
+// ============================================================
+// VERIFICAR LICENÇA
+// ============================================================
+useEffect(() => {
+  let intervalo: ReturnType<typeof setInterval>;
+
+  const verificarLicenca = async () => {
+    try {
+      const resposta = await fetch("http://127.0.0.1:8000/licenca/status");
+
+      if (!resposta.ok) {
+        console.error("Erro ao consultar licença:", resposta.status);
+        return;
+      }
+
+      const dados = await resposta.json();
+
+      setLicenca(dados);
+
+      if (dados.vencimento) {
+        const atualizarContador = () => {
+          const agora = new Date();
+          const vencimento = new Date(dados.vencimento);
+
+          const diferenca = vencimento.getTime() - agora.getTime();
+
+          if (diferenca <= 0) {
+            setTempoRestante({
+              dias: 0,
+              horas: 0,
+              minutos: 0,
+              segundos: 0,
+            });
+            return;
+          }
+
+          const totalSegundos = Math.floor(diferenca / 1000);
+
+          const dias = Math.floor(totalSegundos / 86400);
+          const horas = Math.floor((totalSegundos % 86400) / 3600);
+          const minutos = Math.floor((totalSegundos % 3600) / 60);
+          const segundos = totalSegundos % 60;
+
+          setTempoRestante({
+            dias,
+            horas,
+            minutos,
+            segundos,
+          });
+        };
+
+        atualizarContador();
+
+        intervalo = setInterval(atualizarContador, 1000);
+      }
+    } catch (erro) {
+      console.error("❌ Não foi possível consultar a licença:", erro);
+    }
+  };
+
+  verificarLicenca();
+
+  return () => {
+    if (intervalo) {
+      clearInterval(intervalo);
+    }
+  };
+}, []);
+
+// ============================================================
+
   const isActive = (path: string) => {
     if (path === "/" && location.pathname === "/") return true;
     if (path !== "/" && location.pathname.startsWith(path)) return true;
@@ -63,15 +147,20 @@ export function Layout() {
     <div className="flex h-screen bg-background">
       <CardHistoricoFlutuante />
       {/* Sidebar */}
-      <aside className="w-64 bg-[#FFF0E6] border-r border-[#F3D5C0] flex flex-col">
+      <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
         <div className="p-6 border-b border-sidebar-border">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-            <img 
-                src={logoEncanto} 
-                alt="Logo Encanto Toys" 
-                className="w-full h-full object-contain aspect-square" 
-            />
+            <div className="flex items-center gap-3">
+              <LogoEncantoAnimada largura={150} />
+              <div>
+                <h1 className="text-lg text-foreground">
+                  Encanto Toys
+                </h1>
+
+                <p className="text-xs text-muted-foreground">
+                  Sistema PDV
+                </p>
+              </div>
             </div>
             <div>
               <h1 className="text-lg text-foreground">Encanto Toys</h1>
@@ -103,6 +192,16 @@ export function Layout() {
             >
               <LayoutDashboard className="w-5 h-5" />
               Dashboard
+            </Button>
+          </Link>
+
+          <Link to="/clientes">
+            <Button
+              variant={isActive("/clientes") ? "default" : "ghost"}
+              className="w-full justify-start gap-3"
+            >
+              <Users className="w-5 h-5" />
+              Clientes
             </Button>
           </Link>
 
@@ -182,11 +281,70 @@ export function Layout() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto flex flex-col justify-between">
-        {/* Conteúdo das Páginas */}
-        <div className="flex-1">
-          <Outlet />
+<main className="flex-1 overflow-auto flex flex-col justify-between">
+
+{/* ============================================================
+    LICENÇA DEMO / BLOQUEIO
+    ============================================================ */}
+
+{licenca?.ativa === false ? (
+  // 🔒 SISTEMA BLOQUEADO
+  <div className="flex-1 flex items-center justify-center p-8">
+    <div className="max-w-lg w-full text-center border rounded-xl p-8 shadow-sm bg-background">
+
+      <div className="text-5xl mb-4">
+        🔒
+      </div>
+
+      <h1 className="text-2xl font-bold mb-3">
+        Período de avaliação encerrado
+      </h1>
+
+      <p className="text-muted-foreground mb-6">
+        O período de avaliação deste sistema chegou ao fim.
+      </p>
+
+      <p className="font-medium">
+        Entre em contato com o desenvolvedor para realizar
+        a ativação permanente.
+      </p>
+
+    </div>
+  </div>
+) : (
+  // 🟢 SISTEMA LIBERADO
+  <>
+    {/* Aviso da licença DEMO */}
+    {licenca?.tipo === "DEMO" && (
+      <div className="bg-orange-100 border-b border-orange-300 text-orange-900 px-4 py-3 text-sm">
+        <div className="flex items-center justify-center gap-6 text-center">
+
+          <span className="font-semibold">
+            ⚠️ Período de avaliação
+          </span>
+
+          <span>
+            Este sistema está utilizando uma licença DEMO.
+          </span>
+
+          <span className="font-mono font-bold">
+            Tempo restante:<br />
+            {String(tempoRestante.dias).padStart(2, "0")}d{" "}
+            {String(tempoRestante.horas).padStart(2, "0")}h{" "}
+            {String(tempoRestante.minutos).padStart(2, "0")}m{" "}
+            {String(tempoRestante.segundos).padStart(2, "0")}s
+          </span>
+
         </div>
+      </div>
+    )}
+
+    {/* Conteúdo das páginas */}
+    <div className="flex-1">
+      <Outlet />
+    </div>
+  </>
+)}
 
         {/* [RODAPÉ 2] Rodapé de Direitos Autorais na área principal */}
         <footer className="py-2.5 px-6 border-t border-border bg-white text-xs text-muted-foreground flex items-center justify-end select-none">

@@ -1,10 +1,11 @@
 import { useState, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
-import { pdvService, VendaPayload, fiscalService } from "../../services/api";
-import { imprimirCupomVenda, DadosVenda } from "../../services/printerService";
+import { pdvService, fiscalService } from "../../services/api";
+import { DadosVenda } from "../../services/printerService";
 import { validarCPF } from "../../services/validators";
 
+import { invoke } from "@tauri-apps/api/core";
 import { VendaCheckout, TipoAjuste } from "../../models/VendaCheckout";
 import { PainelDescontoAcrescimo } from "../components/pdv/PainelDescontoAcrescimo";
 import { CampoCpf } from "../components/pdv/CampoCpf";
@@ -49,6 +50,8 @@ export function CheckoutPDV() {
 
   // --- HANDLERS DA APLICAÇÃO ---
 
+
+
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (erroCpf) setErroCpf("");
     let value = e.target.value.replace(/\D/g, "").slice(0, 14);
@@ -78,12 +81,18 @@ export function CheckoutPDV() {
     setSalvandoVenda(true);
 
     try {
-      const caixaIdLocal = Number(localStorage.getItem("@EncantoToys:caixa_id")) || 1;
       
+      const caixaIdLocal = Number(localStorage.getItem("@EncantoToys:caixa_id")) || 1;
+      const usuarioIdLocal = Number(localStorage.getItem("@EncantoToys:usuario_id"));
+
+      if (!usuarioIdLocal) {
+        throw new Error("Usuário logado não identificado. Faça login novamente.");
+      }
+
       // 🟢 Payload unificado direto da classe de modelo
       const payloadVenda = venda.toPayloadCompleto(
         caixaIdLocal,
-        1, // usuario_id
+        usuarioIdLocal,
         String(paymentMethod),
         cpfCliente
       );
@@ -123,43 +132,111 @@ export function CheckoutPDV() {
     }
   };
 
+  const handleImprimirCupom = async () => {
+    if (!dadosVendaFinal) return;
+
+    setImprimindo(true);
+
+    try {
+      const largura = 32;
+
+      const centralizar = (texto: string) => {
+        if (texto.length >= largura) return texto.slice(0, largura);
+        const espacos = Math.floor((largura - texto.length) / 2);
+        return " ".repeat(espacos) + texto;
+      };
+
+      const linha = "-".repeat(largura);
+
+      const linhasItens = dadosVendaFinal.itens
+        .map((item) => {
+          const nome = item.nome.length > 20
+            ? item.nome.slice(0, 20)
+            : item.nome;
+
+          const descricao = `${item.qtd}x ${nome}`;
+          const valor = `R$ ${(item.qtd * item.precoUnitario)
+            .toFixed(2)
+            .replace(".", ",")}`;
+
+          const espacos = Math.max(
+            1,
+            largura - descricao.length - valor.length
+          );
+
+          return `${descricao}${" ".repeat(espacos)}${valor}`;
+        })
+        .join("\n");
+
+      const cupom = [
+        centralizar("ENCANTO TOYS"),
+        centralizar("LOJA DE BRINQUEDOS"),
+        linha,
+        `Venda: ${dadosVendaFinal.idVenda}`,
+        `Data: ${dadosVendaFinal.data}`,
+        `Operador: ${dadosVendaFinal.operador}`,
+        linha,
+        "ITENS",
+        linhasItens,
+        linha,
+        `TOTAL: R$ ${dadosVendaFinal.total.toFixed(2).replace(".", ",")}`,
+        `Pagamento: ${dadosVendaFinal.formaPagamento}`,
+        linha,
+        centralizar("Obrigado pela preferência!"),
+        centralizar("Volte sempre!"),
+        "",
+        "",
+        "",
+      ].join("\n");
+
+      await invoke<string>("imprimir_cupom", {
+        conteudo: cupom,
+      });
+
+      alert("✅ Cupom impresso com sucesso!");
+
+      setModalAberto(false);
+      navigate("/pdv");
+    } catch (error) {
+      console.error("❌ Erro na impressão:", error);
+
+      alert(`❌ Não foi possível imprimir o cupom.\n\n${String(error)}`);
+    } finally {
+      setImprimindo(false);
+    }
+  };  
+
   const handleEmitirNfce = async () => {
     if (!vendaIdReal) return;
+
     setEmitindoNfce(true);
 
     try {
-      const resultado = await fiscalService.emitirNfce(vendaIdReal, cpfCliente.trim() || undefined);
+      const resultado = await fiscalService.emitirNfce(
+        vendaIdReal,
+        cpfCliente.trim() || undefined
+      );
+
       if (!resultado.sucesso || !resultado.caminho_danfe) {
-        throw new Error(resultado.mensagem || "A SEFAZ não autorizou a nota fiscal.");
+        throw new Error(
+          resultado.mensagem || "A SEFAZ não autorizou a nota fiscal."
+        );
       }
 
       const BASE_FOCUS = "https://homologacao.focusnfe.com.br";
+
       const urlDanfePdf = resultado.caminho_danfe.startsWith("http")
         ? resultado.caminho_danfe
         : `${BASE_FOCUS}${resultado.caminho_danfe}`;
 
-      const portaImpressora = localStorage.getItem("@EncantoToys:printer_port") || "/dev/ttyACM0";
-      let impressaoComSucesso = false;
+      setUrlDanfeModal(urlDanfePdf);
 
-      try {
-        if (dadosVendaFinal) {
-          const resultadoImpressao = await imprimirCupomVenda(dadosVendaFinal, portaImpressora);
-          impressaoComSucesso = Boolean(resultadoImpressao?.sucesso);
-        }
-      } catch (err) {
-        impressaoComSucesso = false;
-      }
-
-      if (!impressaoComSucesso) {
-        setUrlDanfeModal(urlDanfePdf);
-        return;
-      }
-
-      alert(`✅ NFC-e Autorizada e impressa com sucesso!`);
-      setModalAberto(false);
-      navigate("/pdv");
     } catch (err: any) {
-      alert(`❌ Falha ao emitir NFC-e:\n\n${err.message || "Erro de comunicação com a SEFAZ."}`);
+      alert(
+        `❌ Falha ao emitir NFC-e:\n\n${
+          err.message || "Erro de comunicação com a SEFAZ."
+        }`
+      );
     } finally {
       setEmitindoNfce(false);
     }
@@ -267,11 +344,31 @@ export function CheckoutPDV() {
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4 border-4 border-cyan-400">
             <h2 className="text-xl font-extrabold text-slate-900 text-center">Venda #{dadosVendaFinal.idVenda} Concluída!</h2>
             <div className="flex flex-col gap-2.5">
-              <Button onClick={() => navigate("/pdv")} className="w-full bg-cyan-500 text-slate-950 font-black text-xs rounded-xl">🖨️ Imprimir Cupom</Button>
-              <Button onClick={handleEmitirNfce} disabled={emitindoNfce} className="w-full bg-emerald-500 text-white font-black text-xs uppercase rounded-xl">
-                {emitindoNfce ? "⚙️ Processando..." : "🧾 Emitir Nota Fiscal (NFC-e)"}
+              <Button
+                onClick={handleImprimirCupom}
+                disabled={imprimindo}
+                className="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-black text-xs uppercase rounded-xl"
+              >
+                {imprimindo ? "🖨️ Imprimindo..." : "🖨️ Imprimir Cupom"}
               </Button>
-              <Button variant="outline" onClick={() => navigate("/pdv")} className="w-full text-emerald-700 border-2 border-emerald-300 rounded-xl">🌱 Concluir sem Imprimir</Button>
+
+              <Button
+                onClick={handleEmitirNfce}
+                disabled={emitindoNfce}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase rounded-xl"
+              >
+                {emitindoNfce
+                  ? "⚙️ Emitindo NFC-e..."
+                  : "🧾 Emitir Nota Fiscal (NFC-e)"}
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => navigate("/pdv")}
+                className="w-full text-emerald-700 border-2 border-emerald-300 rounded-xl"
+              >
+                🌱 Concluir sem Imprimir
+              </Button>
             </div>
           </div>
         </div>

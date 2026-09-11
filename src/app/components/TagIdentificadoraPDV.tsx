@@ -29,13 +29,39 @@ export function TagIdentificadoraPDV() {
       }
 
       try {
+
+        // 🔐 Verifica a licença antes de iniciar a operação do PDV
+        const respostaLicenca = await fetch(
+          "http://127.0.0.1:8000/licenca/status"
+        );
+
+        if (respostaLicenca.ok) {
+          const licenca = await respostaLicenca.json();
+
+          if (!licenca.ativa) {
+            console.log(
+              "🔒 Licença expirada. Inicialização do PDV não será executada."
+            );
+
+            setTagNome("Licença expirada");
+            setAberto(false);
+
+            return;
+          }
+        }
+
         // Pegamos o username salvo no localStorage para mandar junto, caso seu pdvService exija
         const username = localStorage.getItem("@EncantoToys:username") || "operador";
 
-        // 🔴 Chamamos a rota corrigida do backend (/pdv/iniciar-operacao) 
-        // Nota: Garanta que o método 'iniciarOperacao' chame a rota correta no seu api.ts
+        // Primeiro identifica/cadastra o computador.
+        // Se o hostname ainda não existir no banco, o backend cria o PDV.
+        const dispositivo = await pdvService.identificarMaquina(nomeDaMaquina);
+
+        console.log("PDV identificado:", dispositivo);
+
+        // Depois inicia a operação normalmente.
         const dadosCaixa = await pdvService.iniciarOperacao(nomeDaMaquina, username);
-        
+
         setTagNome(dadosCaixa.tag_nome);
         setAberto(dadosCaixa.esta_aberto);
       } catch (err: any) {

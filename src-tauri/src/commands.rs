@@ -1,31 +1,38 @@
-use serialport;
+use std::fs::OpenOptions;
 use std::io::Write;
 
 #[tauri::command]
-pub fn imprimir_cupom_bematech(porta: String, conteudo: String) -> Result<String, String> {
-    // 1. Alterado de 9600 para 115200 (padrão USB da MP-4200 TH)
-    let mut port = serialport::new(&porta, 115200)
-        .timeout(std::time::Duration::from_millis(1000))
-        .open()
-        .map_err(|e| format!("Erro ao abrir a porta {}: {}", porta, e))?;
+pub fn imprimir_cupom(conteudo: String) -> Result<String, String> {
+    let porta = "/dev/ttyACM0";
 
-    // Reset / Inicialização da impressora (ESC @)
-    let init_printer: [u8; 2] = [0x1B, 0x40];
-    port.write_all(&init_printer).map_err(|e| e.to_string())?;
+    let mut impressora = OpenOptions::new()
+        .write(true)
+        .open(porta)
+        .map_err(|e| format!("Erro ao abrir {}: {}", porta, e))?;
 
-    // Escreve o texto do cupom
-    port.write_all(conteudo.as_bytes()).map_err(|e| e.to_string())?;
+    // Inicializa a impressora
+    impressora
+        .write_all(b"\x1B\x40")
+        .map_err(|e| format!("Erro ao inicializar impressora: {}", e))?;
 
-    // Avança 4 linhas (ESC d 4)
-    let feed_lines: [u8; 3] = [0x1B, 0x64, 0x04];
-    port.write_all(&feed_lines).map_err(|e| e.to_string())?;
+    // Conteúdo do cupom
+    impressora
+        .write_all(conteudo.as_bytes())
+        .map_err(|e| format!("Erro ao enviar cupom: {}", e))?;
 
-    // Aciona a guilhotina (ESC w 0)
-    let acionar_guilhotina: [u8; 3] = [0x1B, 0x77, 0x00];
-    port.write_all(&acionar_guilhotina).map_err(|e| e.to_string())?;
+    // Alimenta o papel
+    impressora
+        .write_all(b"\n\n\n")
+        .map_err(|e| format!("Erro ao alimentar papel: {}", e))?;
 
-    // 2. Força o envio imediato do buffer de dados para a impressora
-    port.flush().map_err(|e| e.to_string())?;
+    // Corte de papel — ESC/POS
+    impressora
+        .write_all(b"\x1D\x56\x00")
+        .map_err(|e| format!("Erro ao cortar papel: {}", e))?;
 
-    Ok("Cupom impresso e cortado com sucesso!".into())
+    impressora
+        .flush()
+        .map_err(|e| format!("Erro ao finalizar impressão: {}", e))?;
+
+    Ok("Cupom enviado para a Bematech.".to_string())
 }

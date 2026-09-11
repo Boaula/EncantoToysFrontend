@@ -16,6 +16,7 @@ import {
   Search,
 } from "lucide-react";
 import { pdvService, VendaHistorico, FiltrosHistorico } from "../../services/api";
+import { invoke } from "@tauri-apps/api/core";
 
 export function HistoricoVendas() {
   const navigate = useNavigate();
@@ -79,10 +80,64 @@ export function HistoricoVendas() {
   const ticketMedio = vendasFiltradas.length > 0 ? totalVendido / vendasFiltradas.length : 0;
 
   // 🖨️ Ação de Reimpressão de Cupom
-  const handleImprimir = (venda: VendaHistorico) => {
-    // Integração simples via janela de impressão do navegador ou serviço nativo Tauri
-    window.print();
-  };
+// 🖨️ Ação de Reimpressão de Cupom
+const handleImprimir = async (venda: VendaHistorico) => {
+  try {
+    let cupom = "";
+
+    cupom += "        ENCANTO TOYS\n";
+    cupom += "      REIMPRESSAO CUPOM\n";
+    cupom += "--------------------------------\n";
+
+    cupom += `Venda: #${venda.id}\n`;
+    cupom += `Data: ${new Date(venda.data_venda).toLocaleString("pt-BR")}\n`;
+    cupom += `Operador: ${venda.nome_usuario || "Operador"}\n`;
+    cupom += `Pagamento: ${venda.forma_pagamento.replace("_", " ")}\n`;
+
+    cupom += "--------------------------------\n";
+
+    for (const item of venda.itens) {
+      cupom += `${item.nome_produto}\n`;
+      cupom += `${item.quantidade}x R$ ${Number(item.preco_estatico).toFixed(2)}    R$ ${Number(item.subtotal).toFixed(2)}\n`;
+    }
+
+    cupom += "--------------------------------\n";
+
+    if (venda.ajustes && venda.ajustes.length > 0) {
+      for (const aj of venda.ajustes) {
+        const descricao =
+          aj.tipo === "DESCONTO"
+            ? "Desconto"
+            : "Acrescimo";
+
+        const sinal =
+          aj.tipo === "DESCONTO"
+            ? "- "
+            : "+ ";
+
+        cupom += `${descricao}: ${sinal}R$ ${Number(aj.valor_aplicado).toFixed(2)}\n`;
+      }
+
+      cupom += "--------------------------------\n";
+    }
+
+    cupom += `TOTAL: R$ ${Number(venda.total).toFixed(2)}\n`;
+
+    cupom += "--------------------------------\n";
+    cupom += "       *** REIMPRESSAO ***\n";
+    cupom += "\n";
+
+    await invoke<string>("imprimir_cupom", {
+      conteudo: cupom,
+    });
+
+    console.log(`Cupom da venda #${venda.id} reimpresso com sucesso.`);
+
+  } catch (error) {
+    console.error("Erro ao reimprimir cupom:", error);
+    alert(`Erro ao imprimir cupom: ${error}`);
+  }
+};
 
   return (
     <div className="min-h-screen bg-slate-50/60 p-4 md:p-6 space-y-6">

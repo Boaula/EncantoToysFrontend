@@ -22,6 +22,33 @@ const writeLocalFiscalConfig = (payload: EmpresaFiscalPayload) => {
   }
 };
 
+// ==========================================
+// CLIENTES
+// ==========================================
+
+export interface Cliente {
+  id: number;
+  nome: string;
+  cpf?: string | null;
+  telefone?: string | null;
+  email?: string | null;
+  data_nascimento?: string | null;
+  observacoes?: string | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientePayload {
+  nome: string;
+  cpf?: string;
+  telefone?: string;
+  email?: string;
+  data_nascimento?: string;
+  observacoes?: string;
+  ativo?: boolean;
+}
+
 // --- INTERFACES DO PDV ---
 export interface Product {
   id: number;
@@ -64,6 +91,7 @@ export interface TokenResponse {
   access_token: string;
   token_type: string;
   cargo: string;
+  usuario_id: number;
 }
 
 // --- NOVAS INTERFACES DE HISTÓRICO ---
@@ -411,6 +439,143 @@ export const pdvService = {
     }
 
     return response.json();
+  },
+};
+
+// ==========================================
+// SERVIÇO DE CLIENTES
+// ==========================================
+
+export const clienteService = {
+  listar: async (busca?: string): Promise<Cliente[]> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+    const params = new URLSearchParams();
+
+    if (busca?.trim()) {
+      params.append("busca", busca.trim());
+    }
+
+    const url = `${API_URL}/clientes/?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+
+      throw new Error(
+        errorData.detail || "Erro ao carregar clientes."
+      );
+    }
+
+    return response.json();
+  },
+
+  buscar: async (id: number): Promise<Cliente> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    const response = await fetch(`${API_URL}/clientes/${id}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+
+      throw new Error(
+        errorData.detail || "Erro ao buscar cliente."
+      );
+    }
+
+    return response.json();
+  },
+
+  criar: async (cliente: ClientePayload): Promise<Cliente> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    const response = await fetch(`${API_URL}/clientes/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(cliente),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+
+      if (response.status === 409) {
+        throw new Error(
+          errorData.detail || "Já existe um cliente com este CPF."
+        );
+      }
+
+      throw new Error(
+        errorData.detail || "Erro ao cadastrar cliente."
+      );
+    }
+
+    return response.json();
+  },
+
+  atualizar: async (
+    id: number,
+    cliente: ClientePayload
+  ): Promise<Cliente> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    const response = await fetch(`${API_URL}/clientes/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(cliente),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+
+      if (response.status === 409) {
+        throw new Error(
+          errorData.detail || "Já existe outro cliente com este CPF."
+        );
+      }
+
+      throw new Error(
+        errorData.detail || "Erro ao atualizar cliente."
+      );
+    }
+
+    return response.json();
+  },
+
+  excluir: async (id: number): Promise<boolean> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    const response = await fetch(`${API_URL}/clientes/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+
+      throw new Error(
+        errorData.detail || "Erro ao excluir cliente."
+      );
+    }
+
+    return true;
   },
 };
 

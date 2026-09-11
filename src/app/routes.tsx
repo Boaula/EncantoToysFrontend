@@ -10,6 +10,7 @@ import { CadastroProduto } from "./pages/CadastroProduto";
 import { HistoricoVendas } from "./pages/HistoricoVendas";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ConfiguracaoFiscal } from "./pages/ConfiguracaoFiscal"; // import Fiscal
+import { Clientes } from "./pages/Clientes";
 
 export const router = createBrowserRouter([
   // 🔓 Rota Pública: Tela de Login
@@ -46,6 +47,10 @@ export const router = createBrowserRouter([
             <GestaoEstoque />
           </ProtectedRoute>
         ),
+      },
+      {
+        path: "clientes",
+        element: <Clientes />,
       },
       {
         path: "cadastro_produto",

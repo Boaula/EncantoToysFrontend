@@ -100,12 +100,24 @@ export function PDV() {
   }, []);
 
   const addToCart = (product: Product) => {
+    // Bloqueia imediatamente produtos sem estoque.
+    if (product.stock <= 0) {
+      toast.error(`${product.name} está sem estoque`);
+      setSearch("");
+      searchInputRef.current?.focus();
+      return;
+    }
+
     const existing = cart.find((item) => item.id === product.id);
+
     if (existing) {
       if (existing.quantity < product.stock) {
         setCart(cart.map((item) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
         ));
+
         toast.success(`${product.name} - Quantidade atualizada`);
       } else {
         toast.error("Estoque insuficiente");
@@ -114,6 +126,7 @@ export function PDV() {
       setCart([...cart, { ...product, quantity: 1 }]);
       toast.success(`${product.name} adicionado ao carrinho`);
     }
+
     setSearch("");
     searchInputRef.current?.focus();
   };
@@ -258,7 +271,7 @@ export function PDV() {
                   <button
                     key={product.id}
                     onClick={() => addToCart(product)}
-                    className="p-4 bg-accent/50 hover:bg-accent border border-border rounded-lg text-left transition-all hover:shadow-md group"
+                    className="p-4 bg-accent/40 hover:bg-accent border border-border rounded-lg text-left transition-all hover:shadow-md group"
                   >
                     <div className="flex justify-between items-start mb-2">
                       <h4 className="font-medium text-foreground group-hover:text-primary transition-colors">
@@ -312,7 +325,7 @@ export function PDV() {
               ) : (
                 <div className="space-y-3">
                   {cart.map((item) => (
-                    <div key={item.id} className="p-3 bg-accent/50 rounded-lg border border-border">
+                    <div key={item.id} className="p-3 bg-accent/60 rounded-lg border border-border">
                       <div className="flex justify-between items-start mb-2">
                         <h4 className="font-medium text-sm flex-1">{item.name}</h4>
                         <button
@@ -399,7 +412,7 @@ export function PDV() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="text-center p-4 bg-accent/50 rounded-lg border border-border">
+            <div className="text-center p-4 bg-accent/70 rounded-lg border border-border">
               <p className="text-sm text-muted-foreground mb-1">Total a pagar</p>
               <p className="text-3xl font-bold text-primary">
                 R$ {getTotal().toFixed(2).replace('.', ',')}
