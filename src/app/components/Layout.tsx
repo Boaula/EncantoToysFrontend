@@ -149,23 +149,12 @@ useEffect(() => {
       {/* Sidebar */}
       <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
         <div className="p-6 border-b border-sidebar-border">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-3">
-              <LogoEncantoAnimada largura={150} />
-              <div>
-                <h1 className="text-lg text-foreground">
-                  Encanto Toys
-                </h1>
+          <div className="flex flex-col items-center justify-center">
+            <LogoEncantoAnimada largura={150} />
 
-                <p className="text-xs text-muted-foreground">
-                  Sistema PDV
-                </p>
-              </div>
-            </div>
-            <div>
-              <h1 className="text-lg text-foreground">Encanto Toys</h1>
-              <p className="text-xs text-muted-foreground">Sistema PDV</p>
-            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sistema PDV
+            </p>
           </div>
         </div>
 
