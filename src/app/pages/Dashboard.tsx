@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Badge } from "../components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { pdvService, Product, VendaHistorico } from "../../services/api";
+import { obterAlertaValidade } from "../../services/validators";
 
 export function Dashboard() {
   const hoje = new Date().toLocaleDateString("sv"); // Formato YYYY-MM-DD local
@@ -85,8 +86,17 @@ export function Dashboard() {
   );
   const ticketMedio = periodTransactions > 0 ? periodTotal / periodTransactions : 0;
 
-  // 📦 2. PRODUTOS COM ESTOQUE CRÍTICO (<= 10 unidades)
-  const lowStockProducts = produtos.filter((p) => p.stock <= 5);
+  // 📦 2. Produtos cadastrados que possuem 4 unidades ou menos
+    const produtosVencidos = produtos
+    .filter(
+      (produto) =>
+        produto.stock > 0 &&
+        obterAlertaValidade(produto.data_validade) !== null
+    )
+    .sort((a, b) =>
+      (a.data_validade ?? "").localeCompare(b.data_validade ?? "")
+    );
+  const lowStockProducts = produtos.filter((p) => p.stock <= 4);
 
   // 📈 3. GRÁFICO INTELIGENTE: VENDAS POR HORA OU POR DATA
   const isSingleDay = dataInicio === dataFim;
@@ -280,6 +290,68 @@ export function Dashboard() {
         </Card>
       </div>
 
+            <Card className="border-red-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-red-700">
+            <AlertTriangle className="w-5 h-5" />
+            Produtos vencidos em estoque ({produtosVencidos.length})
+          </CardTitle>
+          <CardDescription>
+            Situação atual do estoque, independente do período de vendas
+            selecionado.
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">
+              Carregando produtos...
+            </p>
+          ) : produtosVencidos.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhum produto com validade vencida e estoque disponível.
+            </p>
+          ) : (
+            <div className="max-h-80 overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Produto</TableHead>
+                    <TableHead>Código de barras</TableHead>
+                    <TableHead>Validade</TableHead>
+                    <TableHead className="text-right">Estoque</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+
+                <TableBody>
+                  {produtosVencidos.map((produto) => (
+                    <TableRow key={produto.id}>
+                      <TableCell className="font-medium">
+                        {produto.name}
+                      </TableCell>
+                      <TableCell>{produto.barcode}</TableCell>
+                      <TableCell>
+                        {produto.data_validade
+                          ?.split("-")
+                          .reverse()
+                          .join("/")}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {produto.stock} un
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="destructive">Vencido</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* CHARTS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Gráfico de Desempenho */}
@@ -358,7 +430,7 @@ export function Dashboard() {
             <Package className="w-5 h-5 text-primary" />
             Produtos com Estoque Crítico
           </CardTitle>
-          <CardDescription>Produtos cadastrados que possuem 5 unidades ou menos</CardDescription>
+          <CardDescription>Produtos cadastrados que possuem 4 unidades ou menos</CardDescription>
         </CardHeader>
         <CardContent>
           {lowStockProducts.length === 0 ? (
@@ -386,9 +458,15 @@ export function Dashboard() {
                       R$ {Number(product.price).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge variant={product.stock <= 5 ? "destructive" : "secondary"}>
-                        {product.stock <= 5 ? "Crítico" : "Baixo"}
-                      </Badge>
+                    <Badge
+                      className={
+                        product.stock <= 2
+                          ? "bg-rose-600 hover:bg-rose-700 text-white"
+                          : "bg-amber-500 hover:bg-amber-600 text-white"
+                      }
+                    >
+                      {product.stock <= 2 ? "Crítico" : "Atenção"}
+                    </Badge>
                     </TableCell>
                   </TableRow>
                 ))}

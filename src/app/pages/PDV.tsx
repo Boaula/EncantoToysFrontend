@@ -11,6 +11,7 @@ import { Search, X, CreditCard, Banknote, Smartphone, Trash2, Plus, Minus, Shopp
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { ModalCalculadoraTroco } from "../components/ModalCalculadoraTroco";
+import { obterAlertaValidade } from "../../services/validators";
 
 
 export function PDV() {
@@ -107,6 +108,14 @@ export function PDV() {
       searchInputRef.current?.focus();
       return;
     }
+
+    const alertaValidade = obterAlertaValidade(product.data_validade);
+
+      if (alertaValidade) {
+        toast.warning(`${product.name}: ${alertaValidade}`, {
+          duration: 8000,
+        });
+      }
 
     const existing = cart.find((item) => item.id === product.id);
 
@@ -282,6 +291,13 @@ export function PDV() {
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground mb-2">{product.category}</p>
+
+                    {obterAlertaValidade(product.data_validade, currentTime) && (
+                      <p className="mb-2 text-xs font-semibold text-red-700">
+                        {obterAlertaValidade(product.data_validade, currentTime)}
+                      </p>
+                    )}
+                    
                     <div className="flex justify-between items-center">
                       <span className="text-xl font-bold text-primary">
                         R$ {product.price.toFixed(2).replace('.', ',')}
@@ -327,7 +343,17 @@ export function PDV() {
                   {cart.map((item) => (
                     <div key={item.id} className="p-3 bg-accent/60 rounded-lg border border-border">
                       <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-medium text-sm flex-1">{item.name}</h4>
+                        <div className="flex-1">
+                          <h4 className="font-medium text-sm">
+                            {item.name}
+                          </h4>
+
+                          {obterAlertaValidade(item.data_validade, currentTime) && (
+                            <p className="mt-1 text-xs font-semibold text-red-700">
+                              {obterAlertaValidade(item.data_validade, currentTime)}
+                            </p>
+                          )}
+                        </div>
                         <button
                           onClick={() => removeFromCart(item.id)}
                           className="text-muted-foreground hover:text-destructive ml-2"

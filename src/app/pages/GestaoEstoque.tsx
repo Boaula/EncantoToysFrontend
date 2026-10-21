@@ -51,14 +51,22 @@ export function GestaoEstoque() {
   // 2️⃣ ABRIR MODAL DE EDIÇÃO
   const handleOpenEdit = (product: Product) => {
     setEditingProduct(product);
+
     setEditForm({
       codigo_barras: product.barcode || "",
-      tipo_codigo: "FABRICA",
       nome_produto: product.name,
       preco_venda: product.price,
       quantidade_estoque: product.stock,
       categoria: product.category || "Geral",
+      quantidade_compra: product.quantidade_compra ?? null,
+      valor_compra_total: product.valor_compra_total ?? null,
+      frete_total: product.frete_total ?? null,
+      imposto_total: product.imposto_total ?? null,
+      outras_despesas_total: product.outras_despesas_total ?? null,
+      fornecedor: product.fornecedor ?? null,
+      data_validade: product.data_validade ?? null,
     });
+
     setEditDialogOpen(true);
   };
 
@@ -66,6 +74,28 @@ export function GestaoEstoque() {
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
+
+    const temDadosCompra = [
+      editForm.quantidade_compra,
+      editForm.valor_compra_total,
+      editForm.frete_total,
+      editForm.imposto_total,
+      editForm.outras_despesas_total,
+    ].some((valor) => valor !== undefined && valor !== null && valor !== "");
+
+    if (
+      temDadosCompra &&
+      (
+        editForm.quantidade_compra == null ||
+        editForm.valor_compra_total == null ||
+        editForm.valor_compra_total === ""
+      )
+    ) {
+      toast.error(
+        "Preencha a quantidade comprada e o valor total dos produtos."
+      );
+      return;
+    }
 
     try {
       await pdvService.atualizarProduto(editingProduct.id, editForm);
@@ -90,6 +120,10 @@ export function GestaoEstoque() {
     }
   };
 
+  const produtosOrdenados = [...products].sort(
+    (a, b) => a.stock - b.stock || a.name.localeCompare(b.name, "pt-BR")
+  );
+
   return (
     <div className="p-8 space-y-6">
       {/* Topo */}
@@ -99,7 +133,7 @@ export function GestaoEstoque() {
           <p className="text-muted-foreground">Controle seus produtos e níveis de estoque</p>
         </div>
         <Button 
-          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white"
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-500 text-white"
           onClick={() => navigate("/cadastro_produto")}
         >
           <Plus className="w-4 h-4" /> Novo Produto
@@ -148,8 +182,7 @@ export function GestaoEstoque() {
                   </TableCell>
                 </TableRow>
               ) : (
-                products.map((product) => {
-                  const isCritico = product.stock < 6; // 🔴 Regra: Menor que 6 = Crítico
+                produtosOrdenados.map((product) => {
 
                   return (
                     <TableRow key={product.id}>
@@ -160,14 +193,14 @@ export function GestaoEstoque() {
                       <TableCell>
                       <Badge 
                         className={
-                          product.stock <= 5
+                          product.stock <= 2
                             ? "bg-rose-600 hover:bg-rose-700 text-white"
-                            : product.stock <= 7
+                            : product.stock <= 4
                             ? "bg-amber-500 hover:bg-amber-600 text-white"
                             : "bg-emerald-500 hover:bg-emerald-600 text-white"
                         }
                       >
-                        {product.stock <= 5 ? "Crítico" : product.stock <= 7 ? "Atenção" : "Normal"}
+                        {product.stock <= 2 ? "Crítico" : product.stock <= 4 ? "Atenção" : "Normal"}
                       </Badge>
                       </TableCell>
                       <TableCell className="text-right space-x-1">
@@ -200,7 +233,7 @@ export function GestaoEstoque() {
 
       {/* 🟢 MODAL DE EDIÇÃO DE PRODUTO */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Produto</DialogTitle>
           </DialogHeader>
@@ -248,12 +281,151 @@ export function GestaoEstoque() {
                 <label className="text-xs font-semibold">Estoque (un)</label>
                 <Input
                   type="number"
-                  value={editForm.quantidade_estoque || ""}
+                  value={editForm.quantidade_estoque ?? ""}
                   onChange={(e) => setEditForm({ ...editForm, quantidade_estoque: Number(e.target.value) })}
                   required
                 />
               </div>
             </div>
+
+                        <fieldset className="space-y-3 border-t pt-3">
+              <legend className="px-1 text-sm font-semibold">
+                Dados da compra
+              </legend>
+
+              <p className="text-xs text-muted-foreground">
+                Estes valores calculam o custo unitário. Alterá-los não
+                modifica automaticamente o estoque disponível.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="editar_quantidade_compra"
+                    className="text-xs font-semibold"
+                  >
+                    Quantidade comprada em unidades
+                  </label>
+                  <Input
+                    id="editar_quantidade_compra"
+                    type="number"
+                    min="1"
+                    max="2147483647"
+                    step="1"
+                    value={editForm.quantidade_compra ?? ""}
+                    onChange={(e) =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        quantidade_compra:
+                          e.target.value === ""
+                            ? null
+                            : Number(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+
+                {([
+                  ["valor_compra_total", "Valor total dos produtos (R$)"],
+                  ["frete_total", "Frete total (R$)"],
+                  ["imposto_total", "Impostos adicionais (R$)"],
+                  ["outras_despesas_total", "Outras despesas (R$)"],
+                ] as const).map(([campo, rotulo]) => (
+                  <div key={campo} className="space-y-1">
+                    <label
+                      htmlFor={`editar_${campo}`}
+                      className="text-xs font-semibold"
+                    >
+                      {rotulo}
+                    </label>
+                    <Input
+                      id={`editar_${campo}`}
+                      type="number"
+                      min="0"
+                      max="999999999999.99"
+                      step="0.01"
+                      value={editForm[campo] ?? ""}
+                      onChange={(e) => {
+                        const valor = e.target.value;
+
+                        setEditForm((prev) => ({
+                          ...prev,
+                          [campo]: valor === "" ? null : valor,
+                        }));
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Informe somente impostos ainda não incluídos no valor
+                dos produtos. O custo unitário será recalculado ao salvar.
+              </p>
+
+              {editingProduct?.custo_unitario != null && (
+                <p className="text-sm font-medium">
+                  Custo unitário salvo: R${" "}
+                  {Number(editingProduct.custo_unitario).toLocaleString(
+                    "pt-BR",
+                    {
+                      minimumFractionDigits: 4,
+                      maximumFractionDigits: 4,
+                    }
+                  )}
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="editar_fornecedor"
+                    className="text-xs font-semibold"
+                  >
+                    Fornecedor
+                  </label>
+                  <Input
+                    id="editar_fornecedor"
+                    maxLength={150}
+                    value={editForm.fornecedor ?? ""}
+                    onChange={(e) => {
+                      const valor = e.target.value;
+
+                      setEditForm((prev) => ({
+                        ...prev,
+                        fornecedor: valor === "" ? null : valor,
+                      }));
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="editar_data_validade"
+                    className="text-xs font-semibold"
+                  >
+                    Data de validade
+                  </label>
+                  <Input
+                    id="editar_data_validade"
+                    type="date"
+                    value={editForm.data_validade ?? ""}
+                    onChange={(e) => {
+                      const valor = e.target.value;
+
+                      setEditForm((prev) => ({
+                        ...prev,
+                        data_validade: valor === "" ? null : valor,
+                      }));
+                    }}
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Apague a data para remover a validade cadastrada.
+              </p>
+            </fieldset>
 
             <DialogFooter className="pt-3">
               <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>

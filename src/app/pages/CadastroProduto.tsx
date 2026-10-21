@@ -21,13 +21,34 @@ export function CadastroProduto() {
     categoria: "Brinquedos",
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "preco_venda" || name === "quantidade_estoque" ? Number(value) : value,
-    }));
-  };
+  const handleChange = (
+      e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    ) => {
+      const { name, value } = e.target;
+      let novoValor: string | number | null = value;
+
+      if (name === "preco_venda" || name === "quantidade_estoque") {
+        novoValor = Number(value);
+      } else if (name === "quantidade_compra") {
+        novoValor = value === "" ? null : Number(value);
+      } else if (
+        [
+          "valor_compra_total",
+          "frete_total",
+          "imposto_total",
+          "outras_despesas_total",
+          "data_validade",
+          "fornecedor",
+        ].includes(name)
+      ) {
+        novoValor = value === "" ? null : value;
+      }
+
+      setFormData((prev) => ({
+        ...prev,
+        [name]: novoValor,
+      }));
+    };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +62,28 @@ export function CadastroProduto() {
       toast.error("O código de barras é obrigatório.");
       return;
     }
+
+        const temDadosCompra = [
+        formData.quantidade_compra,
+        formData.valor_compra_total,
+        formData.frete_total,
+        formData.imposto_total,
+        formData.outras_despesas_total,
+      ].some((valor) => valor !== undefined && valor !== null && valor !== "");
+
+      if (
+        temDadosCompra &&
+        (
+          formData.quantidade_compra == null ||
+          formData.valor_compra_total == null ||
+          formData.valor_compra_total === ""
+        )
+      ) {
+        toast.error(
+          "Preencha a quantidade comprada e o valor total dos produtos."
+        );
+        return;
+      }
 
     setSalvando(true);
 
@@ -203,6 +246,119 @@ export function CadastroProduto() {
                 />
               </div>
             </div>
+
+                        <fieldset
+              disabled={salvando}
+              className="space-y-3 border-t pt-4"
+            >
+              <legend className="px-1 text-sm font-semibold">
+                Dados da compra — opcionais
+              </legend>
+
+              <p className="text-xs text-muted-foreground">
+                Informe os totais referentes à quantidade comprada deste
+                produto. Exemplo: uma caixa com 20 unidades.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="quantidade_compra"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Quantidade comprada em unidades
+                  </label>
+                  <Input
+                    id="quantidade_compra"
+                    name="quantidade_compra"
+                    type="number"
+                    min="1"
+                    max="2147483647"
+                    step="1"
+                    value={formData.quantidade_compra ?? ""}
+                    onChange={handleChange}
+                    placeholder="Ex: 20"
+                    className="h-9 text-sm"
+                  />
+                </div>
+
+                {([
+                  ["valor_compra_total", "Valor total dos produtos (R$)"],
+                  ["frete_total", "Frete total (R$)"],
+                  ["imposto_total", "Impostos adicionais (R$)"],
+                  ["outras_despesas_total", "Outras despesas (R$)"],
+                ] as const).map(([campo, rotulo]) => (
+                  <div key={campo} className="space-y-1">
+                    <label
+                      htmlFor={campo}
+                      className="text-xs font-semibold text-slate-700"
+                    >
+                      {rotulo}
+                    </label>
+                    <Input
+                      id={campo}
+                      name={campo}
+                      type="number"
+                      min="0"
+                      max="999999999999.99"
+                      step="0.01"
+                      value={formData[campo] ?? ""}
+                      onChange={handleChange}
+                      placeholder="0,00"
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                O custo unitário será calculado ao salvar: produtos +
+                frete + impostos adicionais + outras despesas, dividido
+                pela quantidade comprada. Informe somente impostos ainda
+                não incluídos no valor dos produtos.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="fornecedor"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Fornecedor
+                  </label>
+                  <Input
+                    id="fornecedor"
+                    name="fornecedor"
+                    maxLength={150}
+                    value={formData.fornecedor ?? ""}
+                    onChange={handleChange}
+                    placeholder="Nome do fornecedor"
+                    className="h-9 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="data_validade"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Data de validade
+                  </label>
+                  <Input
+                    id="data_validade"
+                    name="data_validade"
+                    type="date"
+                    value={formData.data_validade ?? ""}
+                    onChange={handleChange}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Produtos sem prazo de validade podem ficar com a data vazia.
+              </p>
+            </fieldset>
 
             {/* Linha 4: Botões de Ação Justificados no Canto Direito */}
             <div className="flex justify-end gap-3 pt-3 border-t mt-2">

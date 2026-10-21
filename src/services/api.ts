@@ -49,24 +49,37 @@ export interface ClientePayload {
   ativo?: boolean;
 }
 
+export interface ProdutoDadosCompra {
+  quantidade_compra?: number | null;
+  valor_compra_total?: string | number | null;
+  frete_total?: string | number | null;
+  imposto_total?: string | number | null;
+  outras_despesas_total?: string | number | null;
+  fornecedor?: string | null;
+  data_validade?: string | null;
+}
+
 // --- INTERFACES DO PDV ---
-export interface Product {
+export interface Product extends ProdutoDadosCompra {
   id: number;
   name: string;
   barcode: string;
   category: string;
   price: number;
   stock: number;
+  custo_unitario?: string | number | null;
+  dados_produto_atualizados_em?: string | null;
 }
 
 // Objeto que o cadastro espera receber
-export interface ProdutoPayload {
+export interface ProdutoPayload extends ProdutoDadosCompra {
   codigo_barras: string;
   tipo_codigo?: string;
   nome_produto: string;
   preco_venda: number;
   quantidade_estoque: number;
   categoria?: string;
+  ativo?: boolean;
 }
 
 export interface CartItem extends Product {
@@ -355,35 +368,57 @@ export const pdvService = {
   },
 
   cadastrarProduto: async (produto: ProdutoPayload) => {
-    const response = await fetch("http://localhost:8000/produtos/", {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    const response = await fetch(`${API_URL}/produtos/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(produto),
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Erro ao cadastrar produto.");
+      const erro = await response.json().catch(() => ({}));
+
+      const mensagem = Array.isArray(erro.detail)
+        ? erro.detail.map((item: { msg: string }) => item.msg).join(" | ")
+        : typeof erro.detail === "string"
+          ? erro.detail
+          : "Erro ao cadastrar produto.";
+
+      throw new Error(mensagem);
     }
 
-    return await response.json();
+    return response.json();
   },
 
   atualizarProduto: async (id: number, produto: ProdutoPayload) => {
-    const response = await fetch(`http://localhost:8000/produtos/${id}`, {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    const response = await fetch(`${API_URL}/produtos/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(produto),
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Erro ao atualizar produto.");
+      const erro = await response.json().catch(() => ({}));
+
+      const mensagem = Array.isArray(erro.detail)
+        ? erro.detail.map((item: { msg: string }) => item.msg).join(" | ")
+        : typeof erro.detail === "string"
+          ? erro.detail
+          : "Erro ao atualizar produto.";
+
+      throw new Error(mensagem);
     }
 
-    return await response.json();
+    return response.json();
   },
 
   deletarProduto: async (id: number) => {

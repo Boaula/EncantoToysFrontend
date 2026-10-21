@@ -25,3 +25,31 @@ export function validarCPF(cpf: string): boolean {
 
   return d2 === parseInt(cpfLimpo.charAt(10));
 }
+
+export function obterAlertaValidade(
+    dataValidade?: string | null,
+    agora: Date = new Date(),
+  ): string | null {
+    if (!dataValidade || !/^\d{4}-\d{2}-\d{2}$/.test(dataValidade)) {
+      return null;
+    }
+
+    const partes = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Cuiaba",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(agora);
+
+    const parte = (tipo: string) =>
+      partes.find((item) => item.type === tipo)?.value ?? "";
+
+    const hoje = `${parte("year")}-${parte("month")}-${parte("day")}`;
+
+    if (dataValidade >= hoje) {
+      return null;
+    }
+
+    const dataFormatada = dataValidade.split("-").reverse().join("/");
+    return `Produto vencido em ${dataFormatada}`;
+}
