@@ -768,3 +768,75 @@ export const fiscalService = {
     return response.json();
   },
 };
+
+// IMPORT XML
+
+export interface ItemCompraXml {
+  numero_item: string;
+  codigo_fornecedor: string;
+  codigo_barras: string | null;
+  nome_produto: string;
+  unidade_xml: string;
+  quantidade_xml: string;
+  quantidade_compra: number | null;
+  valor_compra_total: string;
+  desconto_total: string;
+  frete_total: string;
+  outras_despesas_total: string;
+  ipi_total: string;
+  data_validade: string | null;
+  avisos: string[];
+}
+
+export interface ImportacaoCompraXml {
+  arquivo: {
+    id: string;
+    nome: string;
+    ja_arquivado: boolean;
+  };
+  nota: {
+    chave: string;
+    numero_nota: string;
+    ambiente: string;
+    fornecedor: string;
+    itens: ItemCompraXml[];
+    avisos: string[];
+  };
+}
+
+export const xmlCompraService = {
+  async importar(arquivo: File): Promise<ImportacaoCompraXml> {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    if (!token) {
+      throw new Error("Entre no sistema com seu usuário administrador.");
+    }
+
+    const formulario = new FormData();
+    formulario.append("arquivo", arquivo);
+
+    const resposta = await fetch(`${API_URL}/compras/xml/importar`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formulario,
+    });
+
+    const dados = await resposta.json().catch(() => null);
+
+    if (!resposta.ok) {
+      throw new Error(
+        typeof dados?.detail === "string"
+          ? dados.detail
+          : "Não foi possível importar o XML."
+      );
+    }
+
+    if (!dados?.nota?.itens || !dados?.arquivo) {
+      throw new Error("O servidor retornou uma resposta de XML inválida.");
+    }
+
+    return dados;
+  },
+};
