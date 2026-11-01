@@ -13,6 +13,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ModalCalculadoraTroco } from "../components/ModalCalculadoraTroco";
 import { obterAlertaValidade } from "../../services/validators";
 
+import {
+  lerCentavos,
+  textoMonetario,
+  totalEmCentavos,
+} from "../../services/pagamentosVenda";
+
 
 export function PDV() {
   const [search, setSearch] = useState("");
@@ -167,27 +173,26 @@ export function PDV() {
     }
   };
 
-  const handlePayment = (method: string) => {
-    if (cart.length === 0) return;
+const handlePayment = (method: string) => {
+  if (cart.length === 0) return;
 
-    setShowPaymentDialog(false);
+  setShowPaymentDialog(false);
 
-    if (method === "Dinheiro") {
-      // Abre o modal de troco
-      setShowCashModal(true);
-    } else {
-      // Para cartão/PIX, navega direto sem troco
-      navigate("/checkout", {
-        state: {
-          cart: cart,
-          total: getTotal(),
-          paymentMethod: method,
-          valorPago: getTotal(),
-          troco: 0,
-        },
-      });
-    }
-  };
+  if (method === "Dinheiro") {
+    setShowCashModal(true);
+    return;
+  }
+
+  navigate("/checkout", {
+    state: {
+      cart,
+      total: getTotal(),
+      paymentMethod: method,
+      valorPago: 0,
+      troco: 0,
+    },
+  });
+};
 
   const handleConfirmCashPayment = (valorPago: number, troco: number) => {
     setShowCashModal(false);
@@ -202,6 +207,51 @@ export function PDV() {
       },
     });
   };
+
+  const handleAdicionarPagamentoDinheiro = (
+  valorDinheiro: string,
+) => {
+  const dinheiro = lerCentavos(valorDinheiro);
+  const total = totalEmCentavos(getTotal());
+
+  if (
+    dinheiro === null ||
+    dinheiro <= 0n ||
+    dinheiro >= total
+  ) {
+    toast.error(
+      "Informe um valor em dinheiro maior que zero e menor que o total.",
+    );
+    return;
+  }
+
+  setShowCashModal(false);
+
+  navigate("/checkout", {
+    state: {
+      cart,
+      total: getTotal(),
+      paymentMethod: "Dinheiro",
+      valorPago: Number(valorDinheiro),
+      troco: 0,
+
+      pagamentosIniciais: [
+        {
+          id: "dinheiro-inicial",
+          forma: "DINHEIRO",
+          valor: textoMonetario(dinheiro),
+          recebido: textoMonetario(dinheiro),
+        },
+        {
+          id: "complemento-inicial",
+          forma: "PIX",
+          valor: textoMonetario(total - dinheiro),
+          recebido: "",
+        },
+      ],
+    },
+  });
+};
 
   const getTotal = () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -505,6 +555,7 @@ export function PDV() {
         onClose={() => setShowCashModal(false)}
         totalVenda={getTotal()}
         onConfirm={handleConfirmCashPayment}
+        onAdicionarPagamento={handleAdicionarPagamentoDinheiro}
       />
     </div>
   );

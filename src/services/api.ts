@@ -92,11 +92,41 @@ export interface ItemVendaPayload {
   preco_unitario: number;
 }
 
+export type FormaPagamentoParcela =
+  | "DINHEIRO"
+  | "PIX"
+  | "CARTÃO CRÉDITO"
+  | "CARTÃO DÉBITO";
+
+export interface PagamentoVendaPayload {
+  forma_pagamento: FormaPagamentoParcela;
+  valor: string;
+  valor_recebido?: string | null;
+}
+
+export interface PagamentoVendaHistorico {
+  uuid: string | null;
+  forma_pagamento: "DINHEIRO" | "PIX" | "CREDITO" | "DEBITO";
+  valor: string | number;
+  valor_recebido: string | number | null;
+  troco: string | number;
+}
+
 export interface VendaPayload {
   usuario_id?: number;
   caixa_id?: number;
-  forma_pagamento: string;
+
+  forma_pagamento?: string;
+  pagamentos?: PagamentoVendaPayload[];
+
   valor_total: number;
+  subtotal?: number;
+  desconto?: number;
+  desconto_tipo?: "R$" | "%";
+  acrescimo?: number;
+  acrescimo_tipo?: "R$" | "%";
+  cpf_cnpj?: string | null;
+
   itens: ItemVendaPayload[];
 }
 
@@ -132,6 +162,7 @@ export interface VendaHistorico {
   uuid: string;
   total: number;
   forma_pagamento: string;
+  pagamentos?: PagamentoVendaHistorico[];
   data_venda: string;
   sincronizado: boolean;
   caixa_id?: number;

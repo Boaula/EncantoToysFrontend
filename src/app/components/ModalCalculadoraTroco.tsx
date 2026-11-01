@@ -11,11 +11,18 @@ import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Banknote, AlertCircle, CheckCircle2 } from "lucide-react";
 
+import {
+  lerCentavos,
+  textoMonetario,
+  totalEmCentavos,
+} from "../../services/pagamentosVenda";
+
 interface ModalCalculadoraTrocoProps {
   isOpen: boolean;
   onClose: () => void;
   totalVenda: number;
   onConfirm: (valorPago: number, troco: number) => void;
+  onAdicionarPagamento?: (valorDinheiro: string) => void;
 }
 
 export function ModalCalculadoraTroco({
@@ -23,6 +30,7 @@ export function ModalCalculadoraTroco({
   onClose,
   totalVenda,
   onConfirm,
+  onAdicionarPagamento,
 }: ModalCalculadoraTrocoProps) {
   const [valorPagoInput, setValorPagoInput] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,6 +50,14 @@ export function ModalCalculadoraTroco({
   const valorPago = parseFloat(valorPagoInput.replace(",", ".")) || 0;
   const troco = valorPago - totalVenda;
   const estaPago = valorPago >= totalVenda && totalVenda > 0;
+
+  const dinheiroCentavos = lerCentavos(valorPagoInput);
+  const totalCentavos = totalEmCentavos(totalVenda);
+
+  const podeAdicionarPagamento =
+    dinheiroCentavos !== null &&
+    dinheiroCentavos > 0n &&
+    dinheiroCentavos < totalCentavos;
 
   // Atalhos de cédulas rápidas
   const handleQuickAdd = (valor: number) => {
@@ -148,6 +164,29 @@ export function ModalCalculadoraTroco({
               R$ {Math.abs(troco).toFixed(2).replace(".", ",")}
             </div>
           </div>
+
+          {onAdicionarPagamento && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-emerald-600 text-emerald-800"
+              disabled={!podeAdicionarPagamento}
+              onClick={() => {
+                if (
+                  !podeAdicionarPagamento ||
+                  dinheiroCentavos === null
+                ) {
+                  return;
+                }
+
+                onAdicionarPagamento(
+                  textoMonetario(dinheiroCentavos),
+                );
+              }}
+            >
+              + Adicionar outro método de pagamento
+            </Button>
+          )}
 
           <DialogFooter className="pt-2 flex justify-between gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>

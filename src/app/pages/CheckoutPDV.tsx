@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
 import { pdvService, fiscalService } from "../../services/api";
-import { DadosVenda } from "../../services/printerService";
+import { formatarPagamentosCupom, type DadosVenda,} from "../../services/printerService";
 import { validarCPF } from "../../services/validators";
 
 import { invoke } from "@tauri-apps/api/core";
@@ -10,6 +10,14 @@ import { VendaCheckout, TipoAjuste } from "../../models/VendaCheckout";
 import { PainelDescontoAcrescimo } from "../components/pdv/PainelDescontoAcrescimo";
 import { CampoCpf } from "../components/pdv/CampoCpf";
 import { ModalDanfePdf } from "../components/pdv/ModalDanfePdf";
+
+import { PainelPagamentos } from "../components/pdv/PainelPagamentos";
+import {
+  normalizarFormaPagamento,
+  prepararPagamentos,
+  type PagamentoFormulario,
+} from "../../services/pagamentosVenda";
+import type { PagamentoVendaPayload } from "../../services/api";
 
 export function CheckoutPDV() {
   const location = useLocation();
@@ -24,6 +32,33 @@ export function CheckoutPDV() {
 
   // 🟢 Instância da Classe Orientada a Objetos para Gestão dos Itens e Valores
   const venda = useMemo(() => new VendaCheckout(stateData.cart || stateData.carrinho || []), [stateData]);
+
+const [pagamentos, setPagamentos] = useState<PagamentoFormulario[]>(
+  () => {
+    const iniciais: PagamentoFormulario[] | undefined =
+      stateData.pagamentosIniciais;
+
+    if (Array.isArray(iniciais) && iniciais.length > 0) {
+      return iniciais.map((pagamento) => ({ ...pagamento }));
+    }
+
+    const forma = normalizarFormaPagamento(String(paymentMethod));
+
+    return [
+      {
+        id: "pagamento-inicial",
+        forma,
+        valor: "",
+        recebido:
+          forma === "DINHEIRO" &&
+          Number.isFinite(Number(valorPago)) &&
+          Number(valorPago) > 0
+            ? Number(valorPago).toFixed(2)
+            : "",
+      },
+    ];
+  },
+);
 
   // Estados de Desconto e Acréscimo
   const [descontoVal, setDescontoVal] = useState(0);
@@ -48,10 +83,8 @@ export function CheckoutPDV() {
   venda.setDesconto(descontoVal, descontoTipo);
   venda.setAcrescimo(acrescimoVal, acrescimoTipo);
 
+  
   // --- HANDLERS DA APLICAÇÃO ---
-
-
-
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (erroCpf) setErroCpf("");
     let value = e.target.value.replace(/\D/g, "").slice(0, 14);
@@ -64,8 +97,26 @@ export function CheckoutPDV() {
     setCpfCliente(value);
   };
 
-  const handleFinalizarVenda = async () => {
-    setErroCpf("");
+const handleFinalizarVenda = async () => {
+  if (salvandoVenda || modalAberto || vendaIdReal !== null) return;
+
+  setErroCpf("");
+
+  let pagamentosDaVenda: PagamentoVendaPayload[];
+
+  try {
+    pagamentosDaVenda = prepararPagamentos(
+      venda.getTotalFinal(),
+      pagamentos,
+    );
+  } catch (erro) {
+    alert(
+      erro instanceof Error
+        ? erro.message
+        : "Confira os pagamentos.",
+    );
+    return;
+  }
 
     if (cpfCliente.trim() !== "") {
       const docLimpo = cpfCliente.replace(/\D/g, "");
@@ -94,11 +145,12 @@ export function CheckoutPDV() {
         caixaIdLocal,
         usuarioIdLocal,
         String(paymentMethod),
-        cpfCliente
+        cpfCliente,
+        pagamentosDaVenda,
       );
 
       // 🟢 AQUI: Adicionado "as any" para destravar a validação do TypeScript
-      const resposta = await pdvService.registrarVenda(payloadVenda as any);
+      const resposta = await pdvService.registrarVenda(payloadVenda);
       const idVendaReal = resposta.venda_id || resposta.id;
 
       setVendaIdReal(Number(idVendaReal));
@@ -121,7 +173,12 @@ export function CheckoutPDV() {
         operador: operadorAtual,
         itens: venda.getItens().map((i) => ({ nome: i.nome, qtd: i.quantidade, precoUnitario: i.precoUnitario })),
         total: venda.getTotalFinal(),
-        formaPagamento: paymentMethod,
+        formaPagamento: [
+          ...new Set(
+            pagamentosDaVenda.map((pagamento) => pagamento.forma_pagamento),
+          ),
+        ].join(" + "),
+        pagamentos: resposta.pagamentos,
       });
 
       setModalAberto(true);
@@ -180,7 +237,7 @@ export function CheckoutPDV() {
         linhasItens,
         linha,
         `TOTAL: R$ ${dadosVendaFinal.total.toFixed(2).replace(".", ",")}`,
-        `Pagamento: ${dadosVendaFinal.formaPagamento}`,
+        ...formatarPagamentosCupom(dadosVendaFinal),
         linha,
         centralizar("Obrigado pela preferência!"),
         centralizar("Volte sempre!"),
@@ -304,6 +361,17 @@ export function CheckoutPDV() {
             acrescimoTipo={acrescimoTipo}
             onDescontoChange={(val, tipo) => { setDescontoVal(val); setDescontoTipo(tipo); }}
             onAcrescimoChange={(val, tipo) => { setAcrescimoVal(val); setAcrescimoTipo(tipo); }}
+          />
+
+          <PainelPagamentos
+            total={venda.getTotalFinal()}
+            pagamentos={pagamentos}
+            onChange={setPagamentos}
+            disabled={
+              salvandoVenda ||
+              modalAberto ||
+              vendaIdReal !== null
+            }
           />
 
           {/* CAMPO DE CPF / CNPJ */}

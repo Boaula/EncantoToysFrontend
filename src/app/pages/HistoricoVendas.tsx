@@ -18,9 +18,49 @@ import {
 import { pdvService, VendaHistorico, FiltrosHistorico } from "../../services/api";
 import { invoke } from "@tauri-apps/api/core";
 
+import { formatarPagamentosCupom } from "../../services/printerService";
+
+import {
+  FORMAS_PAGAMENTO,
+  normalizarFormaPagamento,
+} from "../../services/pagamentosVenda";
+
 import { relatorioVendasService } from "../../services/api";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
+
+function nomeMetodoPagamento(valor: string): string {
+  const texto = valor
+    .replace(/^FormaPagamento\./i, "")
+    .toUpperCase()
+    .trim();
+
+  if (texto === "MISTO") return "Pagamento dividido";
+
+  try {
+    const forma = normalizarFormaPagamento(texto);
+
+    return FORMAS_PAGAMENTO.find(
+      (opcao) => opcao.valor === forma,
+    )?.nome ?? valor;
+  } catch {
+    return valor;
+  }
+}
+
+function resumoPagamentos(venda: VendaHistorico): string {
+  if (!venda.pagamentos?.length) {
+    return nomeMetodoPagamento(venda.forma_pagamento);
+  }
+
+  return [
+    ...new Set(
+      venda.pagamentos.map((pagamento) =>
+        nomeMetodoPagamento(pagamento.forma_pagamento),
+      ),
+    ),
+  ].join(" + ");
+}
 
 export function HistoricoVendas() {
   const navigate = useNavigate();
@@ -188,6 +228,23 @@ export function HistoricoVendas() {
 // 🖨️ Ação de Reimpressão de Cupom
 const handleImprimir = async (venda: VendaHistorico) => {
   try {
+    // Busca os detalhes atuais antes de reimprimir.
+    venda = await pdvService.obterDetalhesVenda(venda.id);
+
+    const linhasPagamentos = formatarPagamentosCupom({
+      idVenda: String(venda.id),
+      data: new Date(venda.data_venda).toLocaleString("pt-BR"),
+      operador: venda.nome_usuario || "Operador",
+      itens: venda.itens.map((item) => ({
+        nome: item.nome_produto,
+        qtd: item.quantidade,
+        precoUnitario: Number(item.preco_estatico),
+      })),
+      total: Number(venda.total),
+      formaPagamento: venda.forma_pagamento,
+      pagamentos: venda.pagamentos,
+    });
+
     let cupom = "";
 
     cupom += "        ENCANTO TOYS\n";
@@ -197,7 +254,7 @@ const handleImprimir = async (venda: VendaHistorico) => {
     cupom += `Venda: #${venda.id}\n`;
     cupom += `Data: ${new Date(venda.data_venda).toLocaleString("pt-BR")}\n`;
     cupom += `Operador: ${venda.nome_usuario || "Operador"}\n`;
-    cupom += `Pagamento: ${venda.forma_pagamento.replace("_", " ")}\n`;
+    cupom += `Pagamento: ${resumoPagamentos(venda)}\n`;
 
     cupom += "--------------------------------\n";
 
@@ -227,6 +284,9 @@ const handleImprimir = async (venda: VendaHistorico) => {
     }
 
     cupom += `TOTAL: R$ ${Number(venda.total).toFixed(2)}\n`;
+
+    cupom += "--------------------------------\n";
+    cupom += linhasPagamentos.join("\n") + "\n";
 
     cupom += "--------------------------------\n";
     cupom += "       *** REIMPRESSAO ***\n";
@@ -529,7 +589,7 @@ const handleImprimir = async (venda: VendaHistorico) => {
       {/* 🔍 MODAL DE DETALHES E REIMPRESSÃO */}
       {modalAberto && vendaSelecionada && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 overflow-hidden space-y-4 p-5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto space-y-4 p-5 animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
@@ -554,7 +614,7 @@ const handleImprimir = async (venda: VendaHistorico) => {
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>Forma de Pagamento:</span>
-                <span className="font-semibold text-slate-800">{vendaSelecionada.forma_pagamento}</span>
+                <span className="font-semibold text-slate-800">{resumoPagamentos(vendaSelecionada)}</span>
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>Sincronização:</span>
@@ -563,6 +623,54 @@ const handleImprimir = async (venda: VendaHistorico) => {
                 </span>
               </div>
             </div>
+
+            {Boolean(vendaSelecionada.pagamentos?.length) && (
+              <div className="rounded-xl border p-3 space-y-3">
+                <h4 className="text-xs font-bold uppercase text-slate-600">
+                  Pagamentos
+                </h4>
+
+                {vendaSelecionada.pagamentos?.map((pagamento, indice) => (
+                  <div
+                    key={`${pagamento.uuid ?? "legado"}-${indice}`}
+                    className="text-sm space-y-1"
+                  >
+                    <div className="flex justify-between gap-3">
+                      <span>
+                        {nomeMetodoPagamento(pagamento.forma_pagamento)}
+                      </span>
+
+                      <strong>
+                        {Number(pagamento.valor).toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })}
+                      </strong>
+                    </div>
+
+                    {pagamento.valor_recebido != null && (
+                      <div className="text-xs text-slate-500 space-y-1">
+                        <p>
+                          Recebido:{" "}
+                          {Number(pagamento.valor_recebido).toLocaleString(
+                            "pt-BR",
+                            { style: "currency", currency: "BRL" },
+                          )}
+                        </p>
+
+                        <p>
+                          Troco:{" "}
+                          {Number(pagamento.troco).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          })}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}            
 
             {/* Lista de Itens */}
             <div className="space-y-2">

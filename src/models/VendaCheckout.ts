@@ -1,3 +1,8 @@
+import type {
+  PagamentoVendaPayload,
+  VendaPayload,
+} from "../services/api";
+
 export type TipoAjuste = "R$" | "%";
 
 export interface ItemCarrinho {
@@ -87,14 +92,30 @@ export class VendaCheckout {
     });
   }
 
-  public toPayloadCompleto(caixaId: number, usuarioId: number, formaPagamento: string, cpfCnpj?: string) {
+  public toPayloadCompleto(
+    caixaId: number,
+    usuarioId: number,
+    formaPagamento: string,
+    cpfCnpj?: string,
+    pagamentos?: PagamentoVendaPayload[],
+  ): VendaPayload {
     return {
       caixa_id: caixaId,
       usuario_id: usuarioId,
-      forma_pagamento: formaPagamento,
-      cpf_cnpj: cpfCnpj ? cpfCnpj.replace(/\D/g, "") : null,
-      
-      // 📊 Valores financeiros para persistência no Banco
+
+      // Com parcelas, o backend determina o resumo da forma de pagamento.
+      forma_pagamento:
+        pagamentos === undefined ? formaPagamento : undefined,
+
+      pagamentos:
+        pagamentos === undefined
+          ? undefined
+          : pagamentos.map((pagamento) => ({ ...pagamento })),
+
+      cpf_cnpj: cpfCnpj
+        ? cpfCnpj.replace(/\D/g, "")
+        : null,
+
       subtotal: this.getSubtotal(),
       desconto: this.getValorCalculadoDesconto(),
       desconto_tipo: this.descontoTipo,
