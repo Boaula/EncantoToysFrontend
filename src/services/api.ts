@@ -150,6 +150,7 @@ export interface FiltrosHistorico {
   sincronizado?: boolean;
   limit?: number;
   offset?: number;
+  completo?: boolean;
 }
 
 // --- INTERFACES FISCAIS ---
@@ -437,6 +438,7 @@ export const pdvService = {
     const token = localStorage.getItem("@EncantoToys:token");
     const params = new URLSearchParams();
 
+    if (filtros?.completo) {params.append("completo", "true");}
     if (filtros?.data_inicio) params.append("data_inicio", filtros.data_inicio);
     if (filtros?.data_fim) params.append("data_fim", filtros.data_fim);
     if (filtros?.forma_pagamento) params.append("forma_pagamento", filtros.forma_pagamento);
@@ -804,7 +806,93 @@ export interface ImportacaoCompraXml {
   };
 }
 
+export interface XmlCompraArquivado {
+  id: string;
+  nome: string;
+  tamanho_bytes: number;
+  arquivado_em: string;
+  numero_nota: string | null;
+  fornecedor: string | null;
+  quantidade_itens: number | null;
+  erro: string | null;
+}
+
+export interface ListagemXmlsCompras {
+  total: number;
+  limite: number;
+  deslocamento: number;
+  arquivos: XmlCompraArquivado[];
+}
+
 export const xmlCompraService = {
+
+  async listar(deslocamento = 0): Promise<ListagemXmlsCompras> {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    if (!token) {
+      throw new Error("Entre com seu usuário administrador.");
+    }
+
+    const parametros = new URLSearchParams({
+      limite: "20",
+      deslocamento: String(deslocamento),
+    });
+
+    const resposta = await fetch(
+      `${API_URL}/compras/xml?${parametros}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const dados = await resposta.json().catch(() => null);
+
+    if (!resposta.ok) {
+      throw new Error(
+        typeof dados?.detail === "string"
+          ? dados.detail
+          : "Não foi possível consultar os XMLs."
+      );
+    }
+
+    if (!Array.isArray(dados?.arquivos)) {
+      throw new Error("O servidor retornou uma listagem inválida.");
+    }
+
+    return dados;
+  },
+
+  async baixar(identificador: string): Promise<Blob> {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    if (!token) {
+      throw new Error("Entre com seu usuário administrador.");
+    }
+
+    const resposta = await fetch(
+      `${API_URL}/compras/xml/arquivos/${encodeURIComponent(identificador)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (!resposta.ok) {
+      const dados = await resposta.json().catch(() => null);
+
+      throw new Error(
+        typeof dados?.detail === "string"
+          ? dados.detail
+          : "Não foi possível baixar o XML."
+      );
+    }
+
+    return resposta.blob();
+  },
+
   async importar(arquivo: File): Promise<ImportacaoCompraXml> {
     const token = localStorage.getItem("@EncantoToys:token");
 
@@ -838,5 +926,70 @@ export const xmlCompraService = {
     }
 
     return dados;
+  },
+};
+
+export interface FiltrosExportacaoVendas {
+  data_inicio: string;
+  data_fim: string;
+  forma_pagamento?: string;
+  busca?: string;
+}
+
+export const relatorioVendasService = {
+  async baixar(
+    formato: "pdf" | "xml",
+    filtros: FiltrosExportacaoVendas
+  ): Promise<{ conteudo: Blob; nome: string }> {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    if (!token) {
+      throw new Error("Entre com seu usuário administrador.");
+    }
+
+    const parametros = new URLSearchParams({
+      formato,
+      data_inicio: filtros.data_inicio,
+      data_fim: filtros.data_fim,
+    });
+
+    if (filtros.forma_pagamento) {
+      parametros.set("forma_pagamento", filtros.forma_pagamento);
+    }
+
+    if (filtros.busca?.trim()) {
+      parametros.set("busca", filtros.busca.trim());
+    }
+
+    const resposta = await fetch(
+      `${API_URL}/relatorios/vendas/exportar?${parametros}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      }
+    );
+
+    if (!resposta.ok) {
+      const dados = await resposta.json().catch(() => null);
+
+      const mensagem = Array.isArray(dados?.detail)
+        ? dados.detail
+            .map((item: { msg: string }) => item.msg)
+            .join(" | ")
+        : typeof dados?.detail === "string"
+          ? dados.detail
+          : "Não foi possível exportar o relatório.";
+
+      throw new Error(mensagem);
+    }
+
+    return {
+      conteudo: await resposta.blob(),
+      nome:
+        `relatorio_vendas_${filtros.data_inicio}_` +
+        `${filtros.data_fim}.${formato}`,
+    };
   },
 };

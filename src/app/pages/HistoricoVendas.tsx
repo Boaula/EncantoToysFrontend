@@ -18,6 +18,10 @@ import {
 import { pdvService, VendaHistorico, FiltrosHistorico } from "../../services/api";
 import { invoke } from "@tauri-apps/api/core";
 
+import { relatorioVendasService } from "../../services/api";
+import { Button } from "../components/ui/button";
+import { toast } from "sonner";
+
 export function HistoricoVendas() {
   const navigate = useNavigate();
 
@@ -34,23 +38,65 @@ export function HistoricoVendas() {
   const [formaPagamento, setFormaPagamento] = useState("");
   const [buscaTexto, setBuscaTexto] = useState("");
 
+  const [exportando, setExportando] =
+    useState<"pdf" | "xml" | null>(null);
+
+  const [filtrosAplicados, setFiltrosAplicados] = useState<{
+    dataInicio: string;
+    dataFim: string;
+    formaPagamento: string;
+  } | null>(null);
+
+  const filtrosAlterados =
+    !filtrosAplicados ||
+    filtrosAplicados.dataInicio !== dataInicio ||
+    filtrosAplicados.dataFim !== dataFim ||
+    filtrosAplicados.formaPagamento !== formaPagamento;
+
+  const podeExportar =
+    localStorage.getItem("@EncantoToys:cargo")?.toUpperCase() ===
+    "ADMIN";
+
   // 🔄 Função para buscar histórico
   const carregarHistorico = async () => {
-    try {
-      setLoading(true);
+    if (!dataInicio || !dataFim || dataFim < dataInicio) {
+      toast.error("Informe um intervalo de datas válido.");
+      return;
+    }
 
+    const filtrosDaConsulta = {
+      dataInicio,
+      dataFim,
+      formaPagamento,
+    };
+
+    setLoading(true);
+    setFiltrosAplicados(null);
+
+    try {
       const params: FiltrosHistorico = {
-        limit: 100,
+        data_inicio: `${filtrosDaConsulta.dataInicio}T00:00:00`,
+        data_fim: `${filtrosDaConsulta.dataFim}T23:59:59.999999`,
+        completo: true,
       };
 
-      if (dataInicio) params.data_inicio = `${dataInicio}T00:00:00`;
-      if (dataFim) params.data_fim = `${dataFim}T23:59:59`;
-      if (formaPagamento) params.forma_pagamento = formaPagamento;
+      if (filtrosDaConsulta.formaPagamento) {
+        params.forma_pagamento =
+          filtrosDaConsulta.formaPagamento;
+      }
 
       const dados = await pdvService.obterHistoricoVendas(params);
+
       setVendas(dados);
-    } catch (error) {
-      console.error("Erro ao carregar histórico de vendas:", error);
+      setFiltrosAplicados(filtrosDaConsulta);
+    } catch (erro) {
+      setVendas([]);
+
+      toast.error(
+        erro instanceof Error
+          ? erro.message
+          : "Erro ao carregar o histórico."
+      );
     } finally {
       setLoading(false);
     }
@@ -63,7 +109,7 @@ export function HistoricoVendas() {
   // 🔍 Filtro em tempo real no cliente (por ID/UUID ou Nome do Operador)
   const vendasFiltradas = vendas.filter((v) => {
     if (!buscaTexto.trim()) return true;
-    const termo = buscaTexto.toLowerCase();
+    const termo = buscaTexto.trim().toLowerCase();
     return (
       v.id.toString().includes(termo) ||
       v.uuid.toLowerCase().includes(termo) ||
@@ -78,6 +124,65 @@ export function HistoricoVendas() {
     0
   );
   const ticketMedio = vendasFiltradas.length > 0 ? totalVendido / vendasFiltradas.length : 0;
+
+    const exportarRelatorio = async (formato: "pdf" | "xml") => {
+    if (
+      !podeExportar ||
+      !filtrosAplicados ||
+      filtrosAlterados ||
+      loading ||
+      exportando
+    ) {
+      return;
+    }
+
+    setExportando(formato);
+    let endereco: string | null = null;
+
+    try {
+      const arquivo = await relatorioVendasService.baixar(
+        formato,
+        {
+          data_inicio: filtrosAplicados.dataInicio,
+          data_fim: filtrosAplicados.dataFim,
+          forma_pagamento: filtrosAplicados.formaPagamento,
+          busca: buscaTexto.trim(),
+        }
+      );
+
+      endereco = URL.createObjectURL(arquivo.conteudo);
+
+      const link = document.createElement("a");
+      link.href = endereco;
+      link.download = arquivo.nome;
+      document.body.appendChild(link);
+
+      try {
+        link.click();
+      } finally {
+        link.remove();
+      }
+
+      toast.info("Download solicitado.");
+    } catch (erro) {
+      toast.error(
+        erro instanceof Error
+          ? erro.message
+          : "Falha ao exportar o relatório."
+      );
+    } finally {
+      if (endereco) {
+        const enderecoParaLiberar = endereco;
+
+        window.setTimeout(
+          () => URL.revokeObjectURL(enderecoParaLiberar),
+          60_000
+        );
+      }
+
+      setExportando(null);
+    }
+  };
 
   // 🖨️ Ação de Reimpressão de Cupom
 // 🖨️ Ação de Reimpressão de Cupom
@@ -163,7 +268,7 @@ const handleImprimir = async (venda: VendaHistorico) => {
 
         <button
           onClick={carregarHistorico}
-          disabled={loading}
+          disabled={loading || exportando !== null}
           className="flex items-center justify-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
@@ -268,6 +373,7 @@ const handleImprimir = async (venda: VendaHistorico) => {
               <input
                 type="text"
                 placeholder="Ex: 102 ou Operador..."
+                maxLength={120}
                 value={buscaTexto}
                 onChange={(e) => setBuscaTexto(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-primary bg-slate-50/50"
@@ -279,6 +385,7 @@ const handleImprimir = async (venda: VendaHistorico) => {
 
         <div className="flex justify-end pt-2">
           <button
+            disabled={loading || exportando !== null}
             onClick={carregarHistorico}
             className="px-4 py-1.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors shadow-sm"
           >
@@ -286,6 +393,64 @@ const handleImprimir = async (venda: VendaHistorico) => {
           </button>
         </div>
       </div>
+
+            {podeExportar && (
+        <div className="rounded-2xl border bg-white p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold">
+              Baixar relatório de vendas
+            </h2>
+
+            {filtrosAlterados ? (
+              <p className="mt-1 text-xs text-amber-800">
+                Clique em Aplicar Filtros para atualizar a consulta
+                antes de exportar.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Período:{" "}
+                {filtrosAplicados?.dataInicio
+                  .split("-")
+                  .reverse()
+                  .join("/")}{" "}
+                a{" "}
+                {filtrosAplicados?.dataFim
+                  .split("-")
+                  .reverse()
+                  .join("/")}
+                . A busca por ID ou operador também será considerada.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              disabled={
+                loading || filtrosAlterados || exportando !== null
+              }
+              onClick={() => exportarRelatorio("pdf")}
+            >
+              {exportando === "pdf"
+                ? "Gerando PDF..."
+                : "Baixar PDF"}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              disabled={
+                loading || filtrosAlterados || exportando !== null
+              }
+              onClick={() => exportarRelatorio("xml")}
+            >
+              {exportando === "xml"
+                ? "Gerando XML..."
+                : "Baixar XML"}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 📋 TABELA DE VENDAS */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">

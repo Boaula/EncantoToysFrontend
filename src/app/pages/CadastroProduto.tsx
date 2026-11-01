@@ -12,6 +12,8 @@ import {
   type ItemCompraXml,
 } from "../../services/api";
 
+import { XmlsComprasArquivados } from "../components/XmlsComprasArquivados";
+
 import { PackagePlus, Barcode, Tag, DollarSign, Layers, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,59 +43,89 @@ import { toast } from "sonner";
 }
 
 function sugerirPrecoVenda(
-    dados: ProdutoPayload,
-    percentual: string
-  ): string | null {
-    const quantidade = dados.quantidade_compra;
+  dados: ProdutoPayload,
+  multiplicador: string
+): string | null {
+  const quantidade = dados.quantidade_compra;
 
-    if (
-      quantidade == null ||
-      !Number.isInteger(quantidade) ||
-      quantidade <= 0 ||
-      quantidade > 2_147_483_647 ||
-      dados.valor_compra_total == null ||
-      dados.valor_compra_total === "" ||
-      percentual === ""
-    ) {
-      return null;
-    }
-
-    const acrescimo = converterParaCentavos(percentual);
-
-    if (acrescimo === null || acrescimo > 1_000_000n) {
-      return null;
-    }
-
-    const valores = [
-      dados.valor_compra_total,
-      dados.frete_total,
-      dados.imposto_total,
-      dados.outras_despesas_total,
-    ].map(converterParaCentavos);
-
-    if (valores.some((valor) => valor === null)) return null;
-
-    const total = valores.reduce<bigint>(
-      (soma, valor) => soma + (valor ?? 0n),
-      0n
-    );
-
-    const unidades = BigInt(quantidade);
-
-    // Custo unitário com quatro casas, como no backend.
-    const custoUnitario =
-      (total * 100n + unidades / 2n) / unidades;
-
-    // Preço de venda com duas casas e arredondamento.
-    const precoCentavos =
-      (custoUnitario * (10_000n + acrescimo) + 500_000n) /
-      1_000_000n;
-
-    return (
-      `${precoCentavos / 100n}.` +
-      String(precoCentavos % 100n).padStart(2, "0")
-    );
+  if (
+    quantidade == null ||
+    !Number.isInteger(quantidade) ||
+    quantidade <= 0 ||
+    quantidade > 2_147_483_647 ||
+    dados.valor_compra_total == null ||
+    dados.valor_compra_total === "" ||
+    multiplicador === ""
+  ) {
+    return null;
   }
+
+  // Representa o multiplicador com duas casas: 2,50 → 250.
+  const fator = converterParaCentavos(multiplicador);
+
+  if (fator === null || fator <= 0n || fator > 100_000n) {
+    return null;
+  }
+
+  const valores = [
+    dados.valor_compra_total,
+    dados.frete_total,
+    dados.imposto_total,
+    dados.outras_despesas_total,
+  ].map(converterParaCentavos);
+
+  if (valores.some((valor) => valor === null)) return null;
+
+  const total = valores.reduce<bigint>(
+    (soma, valor) => soma + (valor ?? 0n),
+    0n
+  );
+
+  const unidades = BigInt(quantidade);
+
+  // Custo unitário com quatro casas, como no backend.
+  const custoUnitario =
+    (total * 100n + unidades / 2n) / unidades;
+
+  // Custo × multiplicador, arredondado para centavos.
+  const precoCentavos =
+    (custoUnitario * fator + 5_000n) / 10_000n;
+
+  return (
+    `${precoCentavos / 100n}.` +
+    String(precoCentavos % 100n).padStart(2, "0")
+  );
+}
+
+function calcularImpostoTotal(
+  valorCompra: string | number | null | undefined,
+  percentual: string
+): string | null {
+  if (valorCompra == null || valorCompra === "" || percentual === "") {
+    return null;
+  }
+
+  const compraCentavos = converterParaCentavos(valorCompra);
+  const taxa = converterParaCentavos(percentual);
+
+  if (
+    compraCentavos === null ||
+    taxa === null ||
+    taxa > 10_000n
+  ) {
+    return null;
+  }
+
+  // Percentual sobre o valor total dos produtos.
+  // Arredondamento para duas casas decimais.
+  const impostoCentavos =
+    (compraCentavos * taxa + 5_000n) / 10_000n;
+
+  return (
+    `${impostoCentavos / 100n}.` +
+    String(impostoCentavos % 100n).padStart(2, "0")
+  );
+}
 
 export function CadastroProduto() {
   const navigate = useNavigate();
@@ -109,18 +141,22 @@ export function CadastroProduto() {
     const [itemSelecionado, setItemSelecionado] = useState("");
     const [itemAplicado, setItemAplicado] = useState<ItemCompraXml | null>(null);
     const [dadosXmlConferidos, setDadosXmlConferidos] = useState(false);
+    const [impostoPercentual, setImpostoPercentual] = useState("");
 
-    const [percentualCusto, setPercentualCusto] = useState(() => {
+  const [multiplicadorCusto, setMultiplicadorCusto] = useState(() => {
     try {
       return (
-        localStorage.getItem("@EncantoToys:acrescimo-sobre-custo") ?? ""
+        localStorage.getItem("@EncantoToys:multiplicador-custo") ?? ""
       );
     } catch {
       return "";
     }
   });
 
-  const precoSugerido = sugerirPrecoVenda(formData, percentualCusto);
+  const precoSugerido = sugerirPrecoVenda(
+    formData,
+    multiplicadorCusto
+  );
 
   const importarXml = async (
       e: React.ChangeEvent<HTMLInputElement>
@@ -162,6 +198,7 @@ export function CadastroProduto() {
         setItemAplicado(null);
         setDadosXmlConferidos(false);
         setFormData(criarFormularioVazio());
+        setImpostoPercentual("");
 
         toast.success(
           resultado.arquivo.ja_arquivado
@@ -192,6 +229,8 @@ export function CadastroProduto() {
       ) {
         return;
       }
+
+      setImpostoPercentual("");
 
       setFormData({
         ...criarFormularioVazio(),
@@ -240,10 +279,24 @@ export function CadastroProduto() {
         novoValor = value === "" ? null : value;
       }
 
-      setFormData((prev) => ({
-        ...prev,
-        [name]: novoValor,
-      }));
+      setFormData((prev) => {
+        const atualizado = {
+          ...prev,
+          [name]: novoValor,
+        };
+
+        if (
+          name === "valor_compra_total" &&
+          impostoPercentual !== ""
+        ) {
+          atualizado.imposto_total = calcularImpostoTotal(
+            atualizado.valor_compra_total,
+            impostoPercentual
+          );
+        }
+
+        return atualizado;
+      });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -295,6 +348,7 @@ export function CadastroProduto() {
       toast.success("Produto cadastrado com sucesso!");
       
       // Limpa o formulário
+      setImpostoPercentual("");
       setFormData(criarFormularioVazio());
       setItemAplicado(null);
       setItemSelecionado("");
@@ -465,6 +519,8 @@ export function CadastroProduto() {
         </CardContent>
       </Card>
 
+      <XmlsComprasArquivados />
+
       <Card className="shadow-md">
         <CardContent className="p-4">
           <form onSubmit={handleSubmit} className="space-y-3">
@@ -595,7 +651,6 @@ export function CadastroProduto() {
                 {([
                   ["valor_compra_total", "Valor total dos produtos (R$)"],
                   ["frete_total", "Frete total (R$)"],
-                  ["imposto_total", "Impostos adicionais (R$)"],
                   ["outras_despesas_total", "Outras despesas (R$)"],
                 ] as const).map(([campo, rotulo]) => (
                   <div key={campo} className="space-y-1">
@@ -619,13 +674,67 @@ export function CadastroProduto() {
                     />
                   </div>
                 ))}
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="imposto_percentual"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Impostos adicionais (%)
+                  </label>
+
+                  <Input
+                    id="imposto_percentual"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={impostoPercentual}
+                    placeholder="Ex: 6,5"
+                    className="h-9 text-sm"
+                    onChange={(e) => {
+                      const percentual = e.target.value;
+
+                      setImpostoPercentual(percentual);
+                      setDadosXmlConferidos(false);
+
+                      setFormData((prev) => ({
+                        ...prev,
+                        imposto_total: calcularImpostoTotal(
+                          prev.valor_compra_total,
+                          percentual
+                        ),
+                      }));
+                    }}
+                  />
+
+                  <p className="text-xs text-muted-foreground">
+                    Calculado sobre o valor total dos produtos.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="imposto_calculado"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Valor dos impostos (R$)
+                  </label>
+
+                  <Input
+                    id="imposto_calculado"
+                    readOnly
+                    value={String(formData.imposto_total ?? "").replace(".", ",")}
+                    placeholder="0,00"
+                    className="h-9 text-sm"
+                  />
+                </div>
               </div>
 
               <p className="text-xs text-muted-foreground">
-                O custo unitário será calculado ao salvar: produtos +
-                frete + impostos adicionais + outras despesas, dividido
-                pela quantidade comprada. Informe somente impostos ainda
-                não incluídos no valor dos produtos.
+                O custo unitário será multiplicado pelo valor informado.
+                Exemplo: R$ 10,00 × 2,5 = R$ 25,00.
+                O multiplicador fica salvo neste navegador ou aplicativo.
               </p>
 
               <div className="rounded-xl border border-emerald-200 p-3 space-y-3">
@@ -635,35 +744,35 @@ export function CadastroProduto() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label
-                      htmlFor="percentual_sobre_custo"
-                      className="text-xs font-semibold"
-                    >
-                      Acréscimo sobre o custo (%)
-                    </label>
+                  <label
+                    htmlFor="multiplicador_custo"
+                    className="text-xs font-semibold"
+                  >
+                    Multiplicador do custo
+                  </label>
 
-                    <Input
-                      id="percentual_sobre_custo"
-                      type="number"
-                      min="0"
-                      max="10000"
-                      step="0.01"
-                      value={percentualCusto}
-                      placeholder="Ex: 50"
-                      onChange={(e) => {
-                        const valor = e.target.value;
-                        setPercentualCusto(valor);
+                  <Input
+                    id="multiplicador_custo"
+                    type="number"
+                    min="0.01"
+                    max="1000"
+                    step="0.01"
+                    value={multiplicadorCusto}
+                    placeholder="Ex: 2,5"
+                    onChange={(e) => {
+                      const valor = e.target.value;
+                      setMultiplicadorCusto(valor);
 
-                        try {
-                          localStorage.setItem(
-                            "@EncantoToys:acrescimo-sobre-custo",
-                            valor
-                          );
-                        } catch {
-                          // Continua funcionando durante esta sessão.
-                        }
-                      }}
-                    />
+                      try {
+                        localStorage.setItem(
+                          "@EncantoToys:multiplicador-custo",
+                          valor
+                        );
+                      } catch {
+                        // Continua funcionando durante esta sessão.
+                      }
+                    }}
+                  />
                   </div>
 
                   <div className="space-y-1">
