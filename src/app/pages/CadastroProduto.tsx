@@ -12,7 +12,6 @@ import {
   type ItemCompraXml,
 } from "../../services/api";
 
-import { XmlsComprasArquivados } from "../components/XmlsComprasArquivados";
 
 import { PackagePlus, Barcode, Tag, DollarSign, Layers, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
@@ -142,6 +141,7 @@ export function CadastroProduto() {
     const [itemAplicado, setItemAplicado] = useState<ItemCompraXml | null>(null);
     const [dadosXmlConferidos, setDadosXmlConferidos] = useState(false);
     const [impostoPercentual, setImpostoPercentual] = useState("");
+    const [compraAberta, setCompraAberta] = useState(false);
 
   const [multiplicadorCusto, setMultiplicadorCusto] = useState(() => {
     try {
@@ -246,6 +246,7 @@ export function CadastroProduto() {
       });
 
       setItemAplicado(item);
+      setCompraAberta(true);
       setDadosXmlConferidos(false);
 
       toast.info(
@@ -519,7 +520,16 @@ export function CadastroProduto() {
         </CardContent>
       </Card>
 
-      <XmlsComprasArquivados />
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => navigate("/historico_vendas")}
+        >
+          Histórico de vendas e documentos
+        </Button>
+      </div>
 
       <Card className="shadow-md">
         <CardContent className="p-4">
@@ -613,10 +623,20 @@ export function CadastroProduto() {
               </div>
             </div>
 
-                        <fieldset
-              disabled={salvando}
-              className="space-y-3 border-t pt-4"
+            <details
+              open={compraAberta}
+              onToggle={(e) => setCompraAberta(e.currentTarget.open)}
+              className="rounded-xl border"
             >
+              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
+                Compra, fornecedor e validade — opcional
+              </summary>
+
+              <fieldset
+                disabled={salvando}
+                onInvalidCapture={() => setCompraAberta(true)}
+                className="space-y-3 border-t p-4"
+              >
               <legend className="px-1 text-sm font-semibold">
                 Dados da compra — opcionais
               </legend>
@@ -823,23 +843,6 @@ export function CadastroProduto() {
                   O percentual fica salvo neste navegador ou aplicativo.
                   Você pode aplicar a sugestão e ajustar o preço de venda.
                 </p>
-
-                <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Preço de Venda (R$) *</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    type="number"
-                    step="0.01"
-                    name="preco_venda"
-                    value={formData.preco_venda || ""}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                    className="pl-9 h-9 text-sm"
-                    required
-                  />
-                </div>
-              </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -883,6 +886,24 @@ export function CadastroProduto() {
                 Produtos sem prazo de validade podem ficar com a data vazia.
               </p>
             </fieldset>
+            </details>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">Preço de Venda (R$) *</label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  type="number"
+                  step="0.01"
+                  name="preco_venda"
+                  value={formData.preco_venda || ""}
+                  onChange={handleChange}
+                  placeholder="0.00"
+                  className="pl-9 h-9 text-sm"
+                  required
+                />
+              </div>
+            </div>
 
             {/* Linha 4: Botões de Ação Justificados no Canto Direito */}
             <div className="flex justify-end gap-3 pt-3 border-t mt-2">

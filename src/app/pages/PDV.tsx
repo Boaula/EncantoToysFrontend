@@ -286,7 +286,15 @@ export function PDV() {
                       <h4 className="font-medium text-foreground group-hover:text-primary transition-colors">
                         {product.name}
                       </h4>
-                      <Badge variant={product.stock <= 5 ? "destructive" : "secondary"} className="ml-2">
+                      <Badge
+                        className={`ml-2 ${
+                          product.stock <= 2
+                            ? "bg-rose-600 text-white"
+                            : product.stock <= 4
+                            ? "bg-amber-500 text-white"
+                            : "bg-emerald-500 text-white"
+                        }`}
+                      >
                         {product.stock} un
                       </Badge>
                     </div>
