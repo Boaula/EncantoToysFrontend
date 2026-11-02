@@ -336,7 +336,7 @@ export function Home() {
           className="px-10 py-4 flex items-center justify-between text-[11px] font-medium"
           style={{ borderTop: `1px solid ${P.footerBorder}`, color: P.muted }}
         >
-          <span className="bg-white/60 px-2 py-0.5 rounded-md border border-amber-900/5">PDV v1.0</span>
+          <span className="bg-white/60 px-2 py-0.5 rounded-md border border-amber-900/5">PDV v1.1</span>
           <div className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5" />
             <span className="font-mono font-bold">{timeStr}</span>

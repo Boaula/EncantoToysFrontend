@@ -50,9 +50,6 @@ export function TagIdentificadoraPDV() {
           }
         }
 
-        // Pegamos o username salvo no localStorage para mandar junto, caso seu pdvService exija
-        const username = localStorage.getItem("@EncantoToys:username") || "operador";
-
         // Primeiro identifica/cadastra o computador.
         // Se o hostname ainda não existir no banco, o backend cria o PDV.
         const dispositivo = await pdvService.identificarMaquina(nomeDaMaquina);
@@ -60,10 +57,13 @@ export function TagIdentificadoraPDV() {
         console.log("PDV identificado:", dispositivo);
 
         // Depois inicia a operação normalmente.
-        const dadosCaixa = await pdvService.iniciarOperacao(nomeDaMaquina, username);
+        localStorage.setItem(
+          "@EncantoToys:caixa_id",
+          String(dispositivo.id)
+        );
 
-        setTagNome(dadosCaixa.tag_nome);
-        setAberto(dadosCaixa.esta_aberto);
+        setTagNome(dispositivo.tag_nome);
+        setAberto(dispositivo.esta_aberto);
       } catch (err: any) {
         console.error("Erro ao sincronizar máquina com o backend:", err);
         // Se estamos no navegador e o backend respondeu, mas não via Tauri:

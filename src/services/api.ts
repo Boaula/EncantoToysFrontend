@@ -276,15 +276,27 @@ export const adminService = {
     return response.json();
   },
 
-  listarCaixas: async () => {
+  listarCaixas: async (signal?: AbortSignal) => {
     const token = localStorage.getItem("@EncantoToys:token");
+
     const response = await fetch(`${API_URL}/admin/caixas`, {
       method: "GET",
       headers: {
-        "Authorization": `Bearer ${token}`,
-      }
+        Authorization: `Bearer ${token}`,
+      },
+      signal,
     });
-    if (!response.ok) throw new Error("Falha ao listar caixas");
+
+    if (!response.ok) {
+      const erro = await response.json().catch(() => ({}));
+
+      throw new Error(
+        typeof erro.detail === "string"
+          ? erro.detail
+          : "Não foi possível consultar os caixas."
+      );
+    }
+
     return response.json();
   },
 
@@ -306,11 +318,30 @@ export const adminService = {
 // ==========================================
 // SERVIÇO DO PONTO DE VENDA (PDV)
 // ==========================================
+export interface CaixaMonitoramento {
+  id: number;
+  hostname: string;
+  tag_nome: string;
+  esta_aberto: boolean;
+  operador_atual: string | null;
+  aberto_em: string | null;
+  fechado_em: string | null;
+  ultima_atividade_em: string | null;
+  status_atividade:
+    | "SINAL_RECENTE"
+    | "SEM_SINAL_RECENTE"
+    | "NAO_INFORMADA"
+    | "HORARIO_INCONSISTENTE";
+  referencia_em: string;
+  atividade_registrada?: boolean;
+}
+
 export const pdvService = {
   identificarMaquina: async (hostname: string) => {
     const response = await fetch(`${API_URL}/pdv/identificar`, {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${localStorage.getItem("@EncantoToys:token") ?? ""}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ hostname })
@@ -327,7 +358,9 @@ export const pdvService = {
   iniciarOperacao: async (hostname: string, username: string) => {
     const response = await fetch(`${API_URL}/pdv/iniciar-operacao`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        Authorization: `Bearer ${localStorage.getItem("@EncantoToys:token") ?? ""}`,
+        "Content-Type": "application/json" },
       body: JSON.stringify({ hostname, username }),
     });
     if (!response.ok) {
@@ -339,7 +372,9 @@ export const pdvService = {
   fecharOperacao: async (hostname: string) => {
     const response = await fetch(`${API_URL}/pdv/fechar-operacao`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        Authorization: `Bearer ${localStorage.getItem("@EncantoToys:token") ?? ""}`,
+        "Content-Type": "application/json" },
       body: JSON.stringify({ hostname }),
     });
 
@@ -349,6 +384,41 @@ export const pdvService = {
 
     return await response.json();
   },
+
+  registrarAtividade: async (
+    signal?: AbortSignal
+  ): Promise<CaixaMonitoramento> => {
+    const token = localStorage.getItem("@EncantoToys:token");
+
+    if (!token) {
+      throw new Error("Sessão não encontrada.");
+    }
+
+    const response = await fetch(`${API_URL}/pdv/atividade`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({}),
+      signal,
+    });
+
+    if (!response.ok) {
+      const erro = await response.json().catch(() => ({}));
+
+      const mensagem =
+        typeof erro.detail === "string"
+          ? erro.detail
+          : "Não foi possível registrar a atividade do caixa.";
+
+      throw Object.assign(new Error(mensagem), {
+        status: response.status,
+      });
+    }
+
+    return response.json();
+  },  
 
   buscarProdutos: async (searchQuery: string = ""): Promise<Product[]> => {
     const token = localStorage.getItem("@EncantoToys:token");

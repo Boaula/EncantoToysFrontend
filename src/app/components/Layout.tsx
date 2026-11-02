@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LayoutDashboard, ShoppingCart, Home, Package, LogOut, Users, FileText } from "lucide-react";
 import logoEncanto from "../../assets/EncantoToys.png";
@@ -7,6 +7,7 @@ import { LogoEncantoAnimada } from "./LogoEncantoAnimada";
 import logoMHS from "../../assets/LogoMHS.png";
 import { pdvService } from "../../services/api";
 import { CardHistoricoFlutuante } from "./CardHistoricoFlutuante";
+import type { CaixaMonitoramento } from "../../services/api";
 
 
 import { Button } from "./ui/button";
@@ -17,6 +18,97 @@ export function Layout() {
 
   const username = localStorage.getItem("@EncantoToys:username") || "Admin";
   const cargo = localStorage.getItem("@EncantoToys:cargo") || "OPERADOR";
+
+  const [caixaMonitorado, setCaixaMonitorado] =
+    useState<CaixaMonitoramento | null>(null);
+
+  const [avisoMonitoramento, setAvisoMonitoramento] = useState("");
+
+  const encerrandoSessao = useRef(false);
+
+  useEffect(() => {
+    let cancelado = false;
+    let proximaTentativa: ReturnType<typeof setTimeout> | undefined;
+    let requisicaoAtual: AbortController | undefined;
+
+    const enviarAtividade = async () => {
+      if (cancelado || encerrandoSessao.current) return;
+
+      const token = localStorage.getItem("@EncantoToys:token");
+      if (!token) return;
+
+      const controller = new AbortController();
+      requisicaoAtual = controller;
+
+      const limite = setTimeout(() => controller.abort(), 10_000);
+      let continuar = true;
+
+      try {
+        const caixa = await pdvService.registrarAtividade(
+          controller.signal
+        );
+
+        if (cancelado || encerrandoSessao.current) return;
+
+        setCaixaMonitorado(caixa);
+
+        localStorage.setItem(
+          "@EncantoToys:caixa_id",
+          String(caixa.id)
+        );
+
+        setAvisoMonitoramento(
+          caixa.esta_aberto && caixa.atividade_registrada
+            ? ""
+            : "Este caixa está fechado. Saia e entre novamente para iniciar a operação."
+        );
+      } catch (erro: unknown) {
+        if (cancelado || encerrandoSessao.current) return;
+
+        const status =
+          erro instanceof Error && "status" in erro
+            ? erro.status
+            : undefined;
+
+        if (status === 401) {
+          continuar = false;
+          setAvisoMonitoramento(
+            "Sessão inválida ou expirada. Saia e entre novamente."
+          );
+        } else if (status === 403 || status === 409) {
+          continuar = false;
+          setAvisoMonitoramento(
+            erro instanceof Error
+              ? erro.message
+              : "O monitoramento do caixa não foi autorizado."
+          );
+        } else {
+          setAvisoMonitoramento(
+            "Sem confirmação de atividade do caixa. Tentaremos novamente em 30 segundos."
+          );
+        }
+      } finally {
+        clearTimeout(limite);
+        requisicaoAtual = undefined;
+
+        if (
+          continuar &&
+          !cancelado &&
+          !encerrandoSessao.current
+        ) {
+          proximaTentativa = setTimeout(enviarAtividade, 30_000);
+        }
+      }
+    };
+
+    proximaTentativa = setTimeout(enviarAtividade, 0);
+
+    return () => {
+      cancelado = true;
+      clearTimeout(proximaTentativa);
+      requisicaoAtual?.abort();
+    };
+  }, []);  
 
 // ============================================================
 // LICENÇA DO SISTEMA
@@ -30,6 +122,7 @@ const [tempoRestante, setTempoRestante] = useState({
 });  
 
   const handleLogout = async () => {
+    encerrandoSessao.current = true;
     try {
       // 1. Descobre o nome da máquina atual usando o método nativo/core do Tauri
       let nomeDaMaquina = "MHS_WEB"; // Fallback padrão caso esteja no navegador
@@ -239,7 +332,22 @@ useEffect(() => {
             <p className="text-[10px] tracking-wider uppercase font-medium text-muted-foreground/70">
               Nível: {cargo}
             </p>
-            <p>Caixa 01 - Aberto</p>
+                        <p>
+              {caixaMonitorado
+                ? `${caixaMonitorado.tag_nome} — ${
+                    caixaMonitorado.esta_aberto ? "Aberto" : "Fechado"
+                  }`
+                : "Consultando caixa..."}
+            </p>
+
+            {avisoMonitoramento && (
+              <p
+                role="status"
+                className="text-xs text-amber-700 dark:text-amber-400"
+              >
+                {avisoMonitoramento}
+              </p>
+            )}
           </div>
 
           <Button 
@@ -355,7 +463,7 @@ useEffect(() => {
 
           {/* Versão alinhada na extrema direita do rodapé */}
           <p className="text-[11px] font-mono">
-            Encanto Toys PDV v1.0.0
+            Encanto Toys PDV v1.1.0
           </p>
         </footer>
       </main>

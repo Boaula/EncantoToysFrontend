@@ -16,7 +16,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::imprimir_cupom
+            commands::imprimir_cupom,
+            commands::salvar_documento
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

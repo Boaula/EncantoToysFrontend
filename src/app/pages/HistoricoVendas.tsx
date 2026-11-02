@@ -29,6 +29,13 @@ import { relatorioVendasService } from "../../services/api";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
 
+import { xmlCompraService } from "../../services/api";
+
+import type {
+  ListagemXmlsCompras,
+  XmlCompraArquivado,
+} from "../../services/api";
+
 function nomeMetodoPagamento(valor: string): string {
   const texto = valor
     .replace(/^FormaPagamento\./i, "")
@@ -60,6 +67,46 @@ function resumoPagamentos(venda: VendaHistorico): string {
       ),
     ),
   ].join(" + ");
+}
+
+async function salvarDocumento(
+  conteudo: Blob,
+  nome: string
+): Promise<string> {
+  const executandoNoTauri =
+    "__TAURI_INTERNALS__" in window ||
+    "__TAURI__" in window;
+
+  if (executandoNoTauri) {
+    const bytes = new Uint8Array(await conteudo.arrayBuffer());
+
+    const caminho = await invoke<string>("salvar_documento", {
+      nome,
+      conteudo: Array.from(bytes),
+    });
+
+    return `Arquivo salvo em: ${caminho}`;
+  }
+
+  const endereco = URL.createObjectURL(conteudo);
+  const link = document.createElement("a");
+
+  link.href = endereco;
+  link.download = nome;
+  document.body.appendChild(link);
+
+  try {
+    link.click();
+  } finally {
+    link.remove();
+
+    window.setTimeout(
+      () => URL.revokeObjectURL(endereco),
+      60_000
+    );
+  }
+
+  return "Download solicitado ao navegador.";
 }
 
 export function HistoricoVendas() {
@@ -165,7 +212,7 @@ export function HistoricoVendas() {
   );
   const ticketMedio = vendasFiltradas.length > 0 ? totalVendido / vendasFiltradas.length : 0;
 
-    const exportarRelatorio = async (formato: "pdf" | "xml") => {
+  const exportarRelatorio = async (formato: "pdf" | "xml") => {
     if (
       !podeExportar ||
       !filtrosAplicados ||
@@ -177,7 +224,6 @@ export function HistoricoVendas() {
     }
 
     setExportando(formato);
-    let endereco: string | null = null;
 
     try {
       const arquivo = await relatorioVendasService.baixar(
@@ -190,39 +236,244 @@ export function HistoricoVendas() {
         }
       );
 
-      endereco = URL.createObjectURL(arquivo.conteudo);
+      const mensagem = await salvarDocumento(
+        arquivo.conteudo,
+        arquivo.nome
+      );
 
-      const link = document.createElement("a");
-      link.href = endereco;
-      link.download = arquivo.nome;
-      document.body.appendChild(link);
-
-      try {
-        link.click();
-      } finally {
-        link.remove();
-      }
-
-      toast.info("Download solicitado.");
-    } catch (erro) {
+      toast.success(mensagem, { duration: 10_000 });
+    } catch (erro: unknown) {
       toast.error(
         erro instanceof Error
           ? erro.message
-          : "Falha ao exportar o relatório."
+          : String(erro || "Falha ao salvar o relatório.")
       );
     } finally {
-      if (endereco) {
-        const enderecoParaLiberar = endereco;
-
-        window.setTimeout(
-          () => URL.revokeObjectURL(enderecoParaLiberar),
-          60_000
-        );
-      }
-
       setExportando(null);
     }
   };
+
+function XmlsComprasHistorico() {
+  const [listagem, setListagem] =
+    useState<ListagemXmlsCompras | null>(null);
+
+  const [deslocamento, setDeslocamento] = useState(0);
+  const [atualizacao, setAtualizacao] = useState(0);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [baixandoId, setBaixandoId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ativo = true;
+
+    const carregar = async () => {
+      setCarregando(true);
+      setErro("");
+      setListagem(null);
+
+      try {
+        const dados = await xmlCompraService.listar(deslocamento);
+
+        if (ativo) setListagem(dados);
+      } catch (falha: unknown) {
+        if (!ativo) return;
+
+        setErro(
+          falha instanceof Error
+            ? falha.message
+            : "Não foi possível consultar os XMLs."
+        );
+      } finally {
+        if (ativo) setCarregando(false);
+      }
+    };
+
+    void carregar();
+
+    return () => {
+      ativo = false;
+    };
+  }, [deslocamento, atualizacao]);
+
+  const baixarOriginal = async (arquivo: XmlCompraArquivado) => {
+    if (baixandoId !== null) return;
+
+    setBaixandoId(arquivo.id);
+
+    try {
+      const conteudo = await xmlCompraService.baixar(arquivo.id);
+
+      const mensagem = await salvarDocumento(
+        conteudo,
+        `compra_${arquivo.id}.xml`
+      );
+
+      toast.success(mensagem, { duration: 10_000 });
+    } catch (falha: unknown) {
+      toast.error(
+        falha instanceof Error
+          ? falha.message
+          : String(falha || "Não foi possível salvar o XML original.")
+      );
+    } finally {
+      setBaixandoId(null);
+    }
+  };
+
+  const formatarArquivamento = (valor: string) => {
+    const data = new Date(valor);
+
+    if (Number.isNaN(data.getTime())) return "Não informado";
+
+    return data.toLocaleString("pt-BR", {
+      timeZone: "America/Cuiaba",
+    });
+  };
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold text-slate-800">
+            XMLs de compras importadas
+          </h2>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Baixe o arquivo original guardado neste computador.
+            Os filtros de vendas acima não se aplicam a esta lista.
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          disabled={carregando}
+          onClick={() => setAtualizacao((valor) => valor + 1)}
+        >
+          <RefreshCw
+            className={`mr-2 h-4 w-4 ${
+              carregando ? "animate-spin" : ""
+            }`}
+          />
+          Atualizar XMLs
+        </Button>
+      </div>
+
+      {erro && (
+        <p
+          role="alert"
+          className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800"
+        >
+          {erro}
+        </p>
+      )}
+
+      {carregando ? (
+        <p className="py-4 text-sm text-slate-500">
+          Consultando XMLs arquivados...
+        </p>
+      ) : listagem && listagem.arquivos.length === 0 ? (
+        <p className="py-4 text-sm text-slate-500">
+          Nenhum XML encontrado nesta página.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {listagem?.arquivos.map((arquivo) => (
+            <article
+              key={arquivo.id}
+              className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0 space-y-1">
+                <h3 className="text-sm font-semibold text-slate-800 break-words">
+                  {arquivo.fornecedor || "Fornecedor não identificado"}
+                </h3>
+
+                <p className="text-xs text-slate-600">
+                  Nota: {arquivo.numero_nota || "Não informado"}
+                  {" · "}
+                  Itens: {arquivo.quantidade_itens ?? "Não informado"}
+                </p>
+
+                <p className="text-xs text-slate-500">
+                  Arquivado em:{" "}
+                  {formatarArquivamento(arquivo.arquivado_em)}
+                </p>
+
+                <p className="text-xs text-slate-400 break-all">
+                  {arquivo.nome}
+                </p>
+
+                {arquivo.erro && (
+                  <p className="text-xs text-amber-800">
+                    Não foi possível apresentar todos os dados da nota.
+                    Você ainda pode tentar baixar o original.
+                  </p>
+                )}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                disabled={baixandoId !== null}
+                aria-label={`Baixar XML original da nota ${
+                  arquivo.numero_nota || arquivo.nome
+                }`}
+                onClick={() => void baixarOriginal(arquivo)}
+              >
+                {baixandoId === arquivo.id
+                  ? "Baixando..."
+                  : "Baixar XML original"}
+              </Button>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+        <p className="text-xs text-slate-500">
+          {listagem
+            ? `${listagem.total} XML(s) arquivado(s)`
+            : "Consulta de XMLs de compras"}
+        </p>
+
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={carregando || deslocamento === 0}
+            onClick={() =>
+              setDeslocamento((valor) =>
+                Math.max(0, valor - (listagem?.limite ?? 20))
+              )
+            }
+          >
+            Anterior
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            disabled={
+              carregando ||
+              !listagem ||
+              deslocamento + listagem.limite >= listagem.total
+            }
+            onClick={() => {
+              if (listagem) {
+                setDeslocamento(
+                  (valor) => valor + listagem.limite
+                );
+              }
+            }}
+          >
+            Próxima
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
   // 🖨️ Ação de Reimpressão de Cupom
 // 🖨️ Ação de Reimpressão de Cupom
@@ -585,6 +836,8 @@ const handleImprimir = async (venda: VendaHistorico) => {
           </div>
         )}
       </div>
+
+      {podeExportar && <XmlsComprasHistorico />}
 
       {/* 🔍 MODAL DE DETALHES E REIMPRESSÃO */}
       {modalAberto && vendaSelecionada && (
