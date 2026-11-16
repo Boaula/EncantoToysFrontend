@@ -6,6 +6,7 @@ import { Badge } from "../components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { pdvService, Product, VendaHistorico } from "../../services/api";
 import { obterAlertaValidade } from "../../services/validators";
+import { CampoData } from "../components/CampoData";
 
 export function Dashboard() {
   const hoje = new Date().toLocaleDateString("sv"); // Formato YYYY-MM-DD local
@@ -174,7 +175,7 @@ export function Dashboard() {
       </div>
 
       {/* 🔍 BARRA DE FILTROS DE DATA */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
             <Filter className="w-4 h-4 text-primary" />
@@ -182,30 +183,14 @@ export function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="relative">
-              <input
-                type="date"
-                value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
-                className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-primary bg-slate-50/50"
-              />
-              <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            </div>
+            <CampoData id="data-inicial" value={dataInicio} onChange={setDataInicio} />
             <span className="text-xs text-slate-400">até</span>
-            <div className="relative">
-              <input
-                type="date"
-                value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
-                className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-primary bg-slate-50/50"
-              />
-              <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            </div>
+            <CampoData id="data-final" value={dataFim} onChange={setDataFim} />
           </div>
         </div>
 
         {/* ATALHOS RÁPIDOS */}
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => aplicarAtalhosData("hoje")}
             className={`px-3 py-1 text-xs font-semibold rounded-xl transition-colors ${

@@ -1,7 +1,7 @@
 import enum
 import uuid
 import datetime
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum, Boolean
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Date, Enum, Boolean, Text, Numeric, CheckConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -27,6 +27,7 @@ class FormaPagamento(str, enum.Enum):
     DEBITO = "CARTÃO DÉBITO"
     PIX = "PIX"
     DINHEIRO = "DINHEIRO"
+    MISTO = "MISTO"
 
 class Produto(Base):
     __tablename__ = "produtos"
@@ -40,6 +41,54 @@ class Produto(Base):
     quantidade_estoque = Column(Integer, default=0)
     ativo = Column(Boolean, default=True, nullable=False)
 
+    # Dados da compra — separados do estoque atual.
+    quantidade_compra = Column(Integer, nullable=True)
+    valor_compra_total = Column(Numeric(14, 2), nullable=True)
+    frete_total = Column(Numeric(14, 2), nullable=True)
+    imposto_total = Column(Numeric(14, 2), nullable=True)
+    outras_despesas_total = Column(Numeric(14, 2), nullable=True)
+    custo_unitario = Column(Numeric(14, 4), nullable=True)
+
+    fornecedor = Column(String(150), nullable=True)
+    data_validade = Column(Date, nullable=True)
+
+    # Atualizaremos explicitamente ao alterar o cadastro.
+    dados_produto_atualizados_em = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+# ==========================================
+# --- CLIENTES ---
+# ==========================================
+class Cliente(Base):
+    __tablename__ = "clientes"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    nome = Column(String(150), nullable=False, index=True)
+    cpf = Column(String(14), unique=True, nullable=True, index=True)
+    telefone = Column(String(20), nullable=True)
+    email = Column(String(150), nullable=True)
+    data_nascimento = Column(Date, nullable=True)
+
+    observacoes = Column(Text, nullable=True)
+
+    ativo = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(
+        DateTime,
+        default=datetime.datetime.now,
+        nullable=False
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.datetime.now,
+        onupdate=datetime.datetime.now,
+        nullable=False
+    )
+
 class Venda(Base):
     __tablename__ = "vendas"
 
@@ -49,6 +98,8 @@ class Venda(Base):
 
     # casi haja acrescimos ou descontos, cada venda pode ter vários ajustes
     ajustes = relationship("VendaAjuste", backref="venda", cascade="all, delete-orphan")
+    pagamentos = relationship(
+    "VendaPagamento", back_populates="venda", cascade="all, delete-orphan",)
     itens = relationship("ItemVenda", back_populates="venda", cascade="all, delete-orphan")
 
     data_venda = Column(DateTime, default=datetime.datetime.utcnow)
@@ -97,6 +148,23 @@ class CaixaDispositivo(Base):
     tag_nome = Column(String, default="Novo Caixa", nullable=False)
     # Status se está ativo/aberto ou não
     esta_aberto = Column(Boolean, default=False)
+
+    operador_atual = Column(String(150), nullable=True)
+
+    aberto_em = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    fechado_em = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    ultima_atividade_em = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )    
 
 
 # ==========================================
@@ -177,3 +245,70 @@ class Licenca(Base):
     # Informações auxiliares
     criada_em = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     ultima_verificacao = Column(DateTime, nullable=True)
+
+
+class VendaPagamento(Base):
+    __tablename__ = "venda_pagamentos"
+
+    __table_args__ = (
+        CheckConstraint(
+            "valor > 0",
+            name="ck_venda_pagamentos_valor_positivo",
+        ),
+        CheckConstraint(
+            "valor_recebido IS NULL OR valor_recebido >= valor",
+            name="ck_venda_pagamentos_recebido",
+        ),
+        CheckConstraint(
+            "troco >= 0",
+            name="ck_venda_pagamentos_troco",
+        ),
+        CheckConstraint(
+            """
+            (valor_recebido IS NULL AND troco = 0)
+            OR
+            (valor_recebido IS NOT NULL
+             AND valor_recebido - valor = troco)
+            """,
+            name="ck_venda_pagamentos_conferencia_troco",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+
+    uuid = Column(
+        String(36),
+        unique=True,
+        nullable=False,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    venda_id = Column(
+        Integer,
+        ForeignKey("vendas.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    forma_pagamento = Column(
+        Enum(FormaPagamento),
+        nullable=False,
+    )
+
+    # Parte do total da venda quitada por este pagamento.
+    valor = Column(Numeric(14, 2), nullable=False)
+
+    # Para dinheiro: quanto foi entregue pelo cliente.
+    valor_recebido = Column(Numeric(14, 2), nullable=True)
+
+    troco = Column(
+        Numeric(14, 2),
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    venda = relationship(
+        "Venda",
+        back_populates="pagamentos",
+    )

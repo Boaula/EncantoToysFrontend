@@ -26,9 +26,9 @@ pub fn imprimir_cupom(conteudo: String) -> Result<String, String> {
         .write_all(b"\n\n\n")
         .map_err(|e| format!("Erro ao alimentar papel: {}", e))?;
 
-    // Corte de papel — ESC/POS
+    // Corte parcial do papel — comando validado na impressora.
     impressora
-        .write_all(b"\x1D\x56\x00")
+        .write_all(b"\x1B\x6D")
         .map_err(|e| format!("Erro ao cortar papel: {}", e))?;
 
     impressora

@@ -8,11 +8,136 @@ from zoneinfo import ZoneInfo
 from app.database import get_db
 from app import models, schemas
 
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pydantic import ValidationError
+
+from app.services.pagamento_filtro_service import (
+    filtrar_vendas_por_pagamento,
+    normalizar_filtro_pagamento,
+)
+
 router = APIRouter(
     prefix="/vendas",
     tags=["Vendas"],
     dependencies=[Depends(exigir_licenca_valida)]
 )
+
+def serializar_pagamentos_venda(venda):
+    pagamentos = venda.pagamentos
+
+    if pagamentos:
+        return [
+            {
+                "uuid": pagamento.uuid,
+                "forma_pagamento": pagamento.forma_pagamento.name,
+                "valor": pagamento.valor,
+                "valor_recebido": pagamento.valor_recebido,
+                "troco": pagamento.troco,
+            }
+            for pagamento in sorted(
+                pagamentos,
+                key=lambda pagamento: pagamento.id,
+            )
+        ]
+
+    if venda.forma_pagamento == models.FormaPagamento.MISTO:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Venda {venda.uuid}: pagamentos da venda mista "
+                "ainda não estão disponíveis."
+            ),
+        )
+
+    # Venda antiga: representa o pagamento existente sem alterar o banco.
+    return [
+        {
+            "uuid": None,
+            "forma_pagamento": venda.forma_pagamento.name,
+            "valor": Decimal(str(venda.total)).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP,
+            ),
+            "valor_recebido": None,
+            "troco": Decimal("0.00"),
+        }
+    ]
+
+def preparar_pagamentos_venda(payload: schemas.VendaCreate):
+    try:
+        total = Decimal(str(payload.valor_total))
+
+        if not total.is_finite():
+            raise ValueError("O total da venda deve ser finito.")
+
+        total = total.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+        if payload.pagamentos is not None:
+            pagamentos = payload.pagamentos
+        else:
+            # Compatibilidade com o formato antigo.
+            pagamentos = [
+                schemas.PagamentoVendaCreate(
+                    forma_pagamento=models.FormaPagamento[
+                        payload.forma_pagamento
+                    ],
+                    valor=total,
+                )
+            ]
+
+        conferencia = schemas.PagamentosVendaCreate(
+            valor_total=total,
+            pagamentos=pagamentos,
+        )
+
+    except ValidationError as erro:
+        mensagem = "; ".join(
+            item["msg"] for item in erro.errors()
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=mensagem,
+        ) from erro
+
+    except (InvalidOperation, ValueError, KeyError) as erro:
+        raise HTTPException(
+            status_code=422,
+            detail="Total ou forma de pagamento inválidos.",
+        ) from erro
+
+    formas = {
+        pagamento.forma_pagamento
+        for pagamento in conferencia.pagamentos
+    }
+
+    forma_resumo = (
+        models.FormaPagamento.MISTO
+        if len(formas) > 1
+        else conferencia.pagamentos[0].forma_pagamento
+    )
+
+    registros = []
+
+    for pagamento in conferencia.pagamentos:
+        recebido = pagamento.valor_recebido
+
+        troco = (
+            recebido - pagamento.valor
+            if recebido is not None
+            else Decimal("0.00")
+        )
+
+        registros.append({
+            "forma_pagamento": pagamento.forma_pagamento,
+            "valor": pagamento.valor,
+            "valor_recebido": recebido,
+            "troco": troco,
+        })
+
+    return conferencia.valor_total, forma_resumo, registros
 
 
 # ==========================================
@@ -29,16 +154,9 @@ def registrar_venda(payload: schemas.VendaCreate, db: Session = Depends(get_db))
         raise HTTPException(status_code=400, detail="A venda deve conter pelo menos um item.")
 
     try:
-        # 1. Tratamento da Forma de Pagamento
-        texto_forma_pgto = str(payload.forma_pagamento).upper().strip()
-        
-        try:
-            forma_pagamento_enum = models.FormaPagamento[texto_forma_pgto]
-        except (KeyError, AttributeError):
-            try:
-                forma_pagamento_enum = models.FormaPagamento(texto_forma_pgto)
-            except ValueError:
-                forma_pagamento_enum = texto_forma_pgto
+        total_validado, forma_pagamento_enum, pagamentos = (
+            preparar_pagamentos_venda(payload)
+        )
 
         # Captura o horário no fuso de Cuiabá/MT (UTC-4)
         data_cuiaba = datetime.now(ZoneInfo("America/Cuiaba"))
@@ -48,12 +166,19 @@ def registrar_venda(payload: schemas.VendaCreate, db: Session = Depends(get_db))
             caixa_id=payload.caixa_id or 1,
             usuario_id=payload.usuario_id or 1,
             forma_pagamento=forma_pagamento_enum,
-            total=payload.valor_total,
+            total=float(total_validado),
             sincronizado=False,
             data_venda=data_cuiaba
         )
         db.add(nova_venda)
         db.flush()  # Gera o ID da nova_venda no Postgres
+        for pagamento in pagamentos:
+            db.add(
+                models.VendaPagamento(
+                    venda_id=nova_venda.id,
+                    **pagamento,
+                )
+            )
 
         # 🟢 3. Tratamento e Persistência de Desconto / Acréscimo (venda_ajustes)
         try:
@@ -157,6 +282,21 @@ def registrar_venda(payload: schemas.VendaCreate, db: Session = Depends(get_db))
             "data_venda": nova_venda.data_venda,
             "total": nova_venda.total,
             "forma_pagamento": str(nova_venda.forma_pagamento),
+                        "pagamentos": [
+                {
+                    "forma_pagamento": pagamento[
+                        "forma_pagamento"
+                    ].name,
+                    "valor": str(pagamento["valor"]),
+                    "valor_recebido": (
+                        str(pagamento["valor_recebido"])
+                        if pagamento["valor_recebido"] is not None
+                        else None
+                    ),
+                    "troco": str(pagamento["troco"]),
+                }
+                for pagamento in pagamentos
+            ],
             "caixa_id": nova_venda.caixa_id,
             "ajustes": ajustes_registrados,
             "itens": itens_completos_cupom,
@@ -181,27 +321,40 @@ def listar_historico_vendas(
     sincronizado: Optional[bool] = Query(None, description="Filtrar por status de sincronização em nuvem"),
     limit: int = Query(50, ge=1, le=500, description="Quantidade de registros"),
     offset: int = Query(0, ge=0, description="Paginação"),
+    completo: bool = Query(
+        False,
+        description="Consultar todos os registros correspondentes aos filtros",
+    ),
     db: Session = Depends(get_db)
 ):
     """
     Retorna o histórico de vendas ordenado por data mais recente.
     """
     query = db.query(models.Venda).options(
+        joinedload(models.Venda.pagamentos),
         joinedload(models.Venda.itens).joinedload(models.ItemVenda.produto),
         joinedload(models.Venda.usuario),
-        joinedload(models.Venda.ajustes)
+        joinedload(models.Venda.ajustes),
     )
 
     if data_inicio:
         query = query.filter(models.Venda.data_venda >= data_inicio)
     if data_fim:
         query = query.filter(models.Venda.data_venda <= data_fim)
-    if forma_pagamento:
-        query = query.filter(models.Venda.forma_pagamento == forma_pagamento.upper())
+    forma_filtro = normalizar_filtro_pagamento(forma_pagamento)
+    query = filtrar_vendas_por_pagamento(query, forma_filtro)
     if sincronizado is not None:
         query = query.filter(models.Venda.sincronizado == sincronizado)
 
-    vendas = query.order_by(models.Venda.data_venda.desc()).offset(offset).limit(limit).all()
+    query = query.order_by(
+        models.Venda.data_venda.desc(),
+        models.Venda.id.desc(),
+    )
+
+    if not completo:
+        query = query.offset(offset).limit(limit)
+
+    vendas = query.all()
 
     resultado = []
     for venda in vendas:
@@ -233,6 +386,7 @@ def listar_historico_vendas(
             "uuid": venda.uuid,
             "total": venda.total,
             "forma_pagamento": str(venda.forma_pagamento),
+            "pagamentos": serializar_pagamentos_venda(venda),
             "data_venda": venda.data_venda,
             "sincronizado": venda.sincronizado,
             "caixa_id": venda.caixa_id,
@@ -254,6 +408,7 @@ def obter_detalhes_venda(venda_id: int, db: Session = Depends(get_db)):
     Obtém os detalhes completos de uma única venda pelo ID.
     """
     venda = db.query(models.Venda).options(
+        joinedload(models.Venda.pagamentos),
         joinedload(models.Venda.itens).joinedload(models.ItemVenda.produto),
         joinedload(models.Venda.usuario)
     ).filter(models.Venda.id == venda_id).first()
@@ -278,6 +433,7 @@ def obter_detalhes_venda(venda_id: int, db: Session = Depends(get_db)):
         "uuid": venda.uuid,
         "total": venda.total,
         "forma_pagamento": str(venda.forma_pagamento),
+        "pagamentos": serializar_pagamentos_venda(venda),
         "data_venda": venda.data_venda,
         "sincronizado": venda.sincronizado,
         "caixa_id": venda.caixa_id,

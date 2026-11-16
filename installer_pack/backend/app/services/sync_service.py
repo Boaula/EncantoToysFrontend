@@ -1,5 +1,6 @@
 import logging
 from sqlalchemy.orm import joinedload
+from datetime import datetime, timezone
 from app.database import SessionLocal, SessionSupabase
 import socket
 # 🟢 1. Adicionado modelo 'VendaAjuste' no import
@@ -12,10 +13,228 @@ from app.models import (
     ItemVenda,
     VendaAjuste,
     Licenca,
+    VendaPagamento,
+    FormaPagamento,
 )
+
+from decimal import Decimal, ROUND_HALF_UP
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+
+# Campos cadastrais compartilhados entre os PDVs.
+# ID e quantidade em estoque não entram nesta lista.
+CAMPOS_CADASTRO_PRODUTO = (
+    "tipo_codigo",
+    "nome_produto",
+    "categoria",
+    "preco_venda",
+    "ativo",
+    "quantidade_compra",
+    "valor_compra_total",
+    "frete_total",
+    "imposto_total",
+    "outras_despesas_total",
+    "custo_unitario",
+    "fornecedor",
+    "data_validade",
+    "dados_produto_atualizados_em",
+)
+
+
+def _dados_cadastro_produto(produto):
+    return {
+        campo: getattr(produto, campo)
+        for campo in CAMPOS_CADASTRO_PRODUTO
+    }
+
+
+def _versao_cadastro_produto(produto):
+    data = produto.dados_produto_atualizados_em
+
+    # Cadastros antigos ainda não possuem data de atualização.
+    if data is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+    if data.tzinfo is None:
+        return data.replace(tzinfo=timezone.utc)
+
+    return data.astimezone(timezone.utc)
+
+
+def _atualizar_cadastro_produto(sessao, destino, origem):
+    # Só atualiza se o destino continuar com a versão que lemos.
+    # Se outra edição mudar essa versão, tentaremos no próximo ciclo.
+    quantidade = (
+        sessao.query(Produto)
+        .filter(
+            Produto.id == destino.id,
+            Produto.dados_produto_atualizados_em
+            == destino.dados_produto_atualizados_em,
+        )
+        .update(
+            _dados_cadastro_produto(origem),
+            synchronize_session=False,
+        )
+    )
+
+    return quantidade == 1
+
+def copiar_pagamentos_venda(
+    db_origem,
+    venda_origem,
+    db_destino,
+    venda_destino,
+):
+    pagamentos = (
+        db_origem.query(VendaPagamento)
+        .filter(VendaPagamento.venda_id == venda_origem.id)
+        .all()
+    )
+
+    if not pagamentos:
+        if venda_origem.forma_pagamento == FormaPagamento.MISTO:
+            raise ValueError(
+                f"Venda {venda_origem.uuid}: "
+                "venda mista sem pagamentos na origem."
+            )
+
+        # Vendas antigas podem não possuir parcelas registradas.
+        return 0
+
+    def total_em_centavos(valor):
+        numero = Decimal(str(valor))
+        if not numero.is_finite():
+            raise ValueError("Total de venda inválido.")
+        return numero.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+    total = total_em_centavos(venda_origem.total)
+
+    if (
+        venda_origem.uuid != venda_destino.uuid
+        or total != total_em_centavos(venda_destino.total)
+        or venda_origem.forma_pagamento
+        != venda_destino.forma_pagamento
+    ):
+        raise ValueError(
+            "As vendas de origem e destino possuem dados divergentes."
+        )
+
+    uuids = {p.uuid for p in pagamentos}
+
+    if None in uuids or "" in uuids or len(uuids) != len(pagamentos):
+        raise ValueError("Identificadores de pagamentos inválidos.")
+
+    soma = Decimal("0.00")
+
+    for pagamento in pagamentos:
+        if (
+            pagamento.forma_pagamento == FormaPagamento.MISTO
+            or pagamento.valor <= 0
+        ):
+            raise ValueError("Parcela com forma ou valor inválido.")
+
+        recebido = pagamento.valor_recebido
+        troco = pagamento.troco
+
+        if recebido is None:
+            if troco != 0:
+                raise ValueError("Troco sem valor recebido.")
+        elif (
+            pagamento.forma_pagamento != FormaPagamento.DINHEIRO
+            or recebido < pagamento.valor
+            or recebido - pagamento.valor != troco
+        ):
+            raise ValueError("Recebimento ou troco inconsistente.")
+
+        soma += pagamento.valor
+
+    if soma != total:
+        raise ValueError(
+            f"Venda {venda_origem.uuid}: "
+            "pagamentos diferentes do total."
+        )
+
+    formas = {p.forma_pagamento for p in pagamentos}
+    resumo = (
+        FormaPagamento.MISTO
+        if len(formas) > 1
+        else pagamentos[0].forma_pagamento
+    )
+
+    if resumo != venda_origem.forma_pagamento:
+        raise ValueError("Resumo da forma de pagamento inconsistente.")
+
+    existentes = (
+        db_destino.query(VendaPagamento)
+        .filter(VendaPagamento.venda_id == venda_destino.id)
+        .all()
+    )
+
+    if any(p.uuid not in uuids for p in existentes):
+        raise ValueError(
+            "O destino contém pagamentos diferentes dos da origem."
+        )
+
+    campos = (
+        "forma_pagamento",
+        "valor",
+        "valor_recebido",
+        "troco",
+    )
+
+    # Primeiro confere todos os registros; depois adiciona os faltantes.
+    faltantes = []
+
+    for pagamento in pagamentos:
+        existente = (
+            db_destino.query(VendaPagamento)
+            .filter(VendaPagamento.uuid == pagamento.uuid)
+            .first()
+        )
+
+        if existente is not None:
+            if (
+                existente.venda_id != venda_destino.id
+                or any(
+                    getattr(existente, campo)
+                    != getattr(pagamento, campo)
+                    for campo in campos
+                )
+            ):
+                raise ValueError(
+                    f"Pagamento {pagamento.uuid}: conflito no destino."
+                )
+        else:
+            faltantes.append(pagamento)
+
+    for pagamento in faltantes:
+        db_destino.add(
+            VendaPagamento(
+                uuid=pagamento.uuid,
+                venda_id=venda_destino.id,
+                **{
+                    campo: getattr(pagamento, campo)
+                    for campo in campos
+                },
+            )
+        )
+
+    db_destino.flush()
+    return len(faltantes)
+
+def _dados_monitoramento_caixa(caixa):
+    return {
+        "esta_aberto": caixa.esta_aberto,
+        "operador_atual": caixa.operador_atual,
+        "aberto_em": caixa.aberto_em,
+        "fechado_em": caixa.fechado_em,
+        "ultima_atividade_em": caixa.ultima_atividade_em,
+    }
 
 def sincronizar_tudo_com_supabase():
     """Sincroniza cadastros e vendas pendentes com o Supabase de forma isolada e segura."""
@@ -302,225 +521,124 @@ def sincronizar_tudo_com_supabase():
 
         # --- 3. SINCRONIZAR PRODUTOS (Local ↔ Supabase) ---
         try:
-            produtos_locais = db_local.query(Produto).all()
-            produtos_nuvem = db_supabase.query(Produto).all()
-
-            # ==============================================================
-            # IDENTIDADE GLOBAL DOS PRODUTOS
-            #
-            # O código de barras é a identidade do produto entre os bancos.
-            #
-            # IMPORTANTE:
-            # - ID local pertence somente ao banco local.
-            # - ID do Supabase pertence somente ao Supabase.
-            # - Os IDs NÃO precisam ser iguais.
-            # - Nunca copiamos o ID de um banco para o outro.
-            # ==============================================================
-
-            produtos_nuvem_por_codigo = {
+            locais = {
                 produto.codigo_barras: produto
-                for produto in produtos_nuvem
+                for produto in db_local.query(Produto).all()
+                if produto.codigo_barras
+            }
+            nuvem = {
+                produto.codigo_barras: produto
+                for produto in db_supabase.query(Produto).all()
                 if produto.codigo_barras
             }
 
-            produtos_locais_por_codigo = {
-                produto.codigo_barras: produto
-                for produto in produtos_locais
-                if produto.codigo_barras
+            resumo = {
+                "enviados": 0,
+                "baixados": 0,
+                "atualizados_nuvem": 0,
+                "atualizados_local": 0,
+                "sem_alteracao": 0,
+                "conflitos": 0,
+                "concorrentes": 0,
             }
 
-            enviados = 0
-            baixados = 0
-            atualizados_nuvem = 0
-            atualizados_local = 0
-            sem_alteracao = 0
+            for codigo in sorted(set(locais) | set(nuvem)):
+                produto_local = locais.get(codigo)
+                produto_nuvem = nuvem.get(codigo)
 
-            # ==============================================================
-            # 1. LOCAL → SUPABASE
-            #
-            # O produto local é localizado no Supabase pelo código de barras.
-            #
-            # Se não existir:
-            #   - cria no Supabase;
-            #   - NÃO envia o ID local;
-            #   - o Supabase gera seu próprio ID.
-            #
-            # Se já existir:
-            #   - atualiza os dados cadastrais;
-            #   - NÃO altera o estoque nesta etapa.
-            # ==============================================================
-
-            for produto_local in produtos_locais:
-
-                if not produto_local.codigo_barras:
-                    logger.warning(
-                        f"⚠️ [SYNC] Produto local ID {produto_local.id} "
-                        f"não possui código de barras. Ignorando."
+                # Produto ainda não existe na nuvem.
+                # O banco de destino gera seu próprio ID.
+                if produto_nuvem is None:
+                    db_supabase.add(
+                        Produto(
+                            codigo_barras=codigo,
+                            quantidade_estoque=produto_local.quantidade_estoque,
+                            **_dados_cadastro_produto(produto_local),
+                        )
                     )
+                    resumo["enviados"] += 1
                     continue
 
-                produto_nuvem = produtos_nuvem_por_codigo.get(
-                    produto_local.codigo_barras
-                )
-
-                # ----------------------------------------------------------
-                # PRODUTO NOVO → CRIA NO SUPABASE
-                # ----------------------------------------------------------
-                if not produto_nuvem:
-
-                    produto_nuvem = Produto(
-                        codigo_barras=produto_local.codigo_barras,
-                        tipo_codigo=produto_local.tipo_codigo,
-                        nome_produto=produto_local.nome_produto,
-                        categoria=produto_local.categoria,
-                        preco_venda=produto_local.preco_venda,
-                        quantidade_estoque=produto_local.quantidade_estoque,
-                        ativo=produto_local.ativo
+                # Produto ainda não existe localmente.
+                if produto_local is None:
+                    db_local.add(
+                        Produto(
+                            codigo_barras=codigo,
+                            quantidade_estoque=produto_nuvem.quantidade_estoque,
+                            **_dados_cadastro_produto(produto_nuvem),
+                        )
                     )
-
-                    # IMPORTANTE:
-                    # Não informar "id".
-                    # O Supabase/PostgreSQL gera o próprio ID.
-                    db_supabase.add(produto_nuvem)
-
-                    enviados += 1
-
+                    resumo["baixados"] += 1
                     continue
 
-                # ----------------------------------------------------------
-                # PRODUTO JÁ EXISTE → ATUALIZA DADOS CADASTRAIS
-                # ----------------------------------------------------------
+                versao_local = _versao_cadastro_produto(produto_local)
+                versao_nuvem = _versao_cadastro_produto(produto_nuvem)
 
-                produto_nuvem.tipo_codigo = produto_local.tipo_codigo
-                produto_nuvem.nome_produto = produto_local.nome_produto
-                produto_nuvem.categoria = produto_local.categoria
-                produto_nuvem.preco_venda = produto_local.preco_venda
-                produto_nuvem.ativo = produto_local.ativo
+                if versao_local > versao_nuvem:
+                    atualizado = _atualizar_cadastro_produto(
+                        db_supabase,
+                        produto_nuvem,
+                        produto_local,
+                    )
+                    if atualizado:
+                        resumo["atualizados_nuvem"] += 1
+                    else:
+                        resumo["concorrentes"] += 1
 
-                atualizados_nuvem += 1
+                elif versao_nuvem > versao_local:
+                    atualizado = _atualizar_cadastro_produto(
+                        db_local,
+                        produto_local,
+                        produto_nuvem,
+                    )
+                    if atualizado:
+                        resumo["atualizados_local"] += 1
+                    else:
+                        resumo["concorrentes"] += 1
 
-            # Confirma criação/alteração dos produtos no Supabase.
+                else:
+                    # Datas iguais com dados diferentes não permitem
+                    # determinar qual cadastro é o mais recente.
+                    iguais = all(
+                        getattr(produto_local, campo)
+                        == getattr(produto_nuvem, campo)
+                        for campo in CAMPOS_CADASTRO_PRODUTO
+                        if campo != "dados_produto_atualizados_em"
+                    )
+
+                    if iguais:
+                        resumo["sem_alteracao"] += 1
+                    else:
+                        resumo["conflitos"] += 1
+                        logger.warning(
+                            "[SYNC] Produto %s: cadastros diferentes com "
+                            "a mesma data de atualização. Nenhum foi sobrescrito.",
+                            codigo,
+                        )
+
             db_supabase.commit()
-
-            # ==============================================================
-            # RECONSULTA O SUPABASE
-            #
-            # Produtos novos acabaram de receber seus IDs no Supabase.
-            # Reconsultamos para trabalhar com os registros atualizados.
-            # ==============================================================
-
-            produtos_nuvem = db_supabase.query(Produto).all()
-
-            produtos_nuvem_por_codigo = {
-                produto.codigo_barras: produto
-                for produto in produtos_nuvem
-                if produto.codigo_barras
-            }
-
-            # ==============================================================
-            # 2. SUPABASE → LOCAL
-            #
-            # Produtos que existem no Supabase mas ainda não existem
-            # localmente são criados no banco local.
-            #
-            # IMPORTANTE:
-            # NÃO usamos o ID do Supabase.
-            #
-            # O PostgreSQL local gera um novo ID local.
-            # ==============================================================
-
-            for produto_nuvem in produtos_nuvem:
-
-                if not produto_nuvem.codigo_barras:
-                    continue
-
-                produto_local = produtos_locais_por_codigo.get(
-                    produto_nuvem.codigo_barras
-                )
-
-                # ----------------------------------------------------------
-                # PRODUTO NOVO NO SUPABASE → CRIA LOCALMENTE
-                # ----------------------------------------------------------
-                if not produto_local:
-
-                    produto_local = Produto(
-                        codigo_barras=produto_nuvem.codigo_barras,
-                        tipo_codigo=produto_nuvem.tipo_codigo,
-                        nome_produto=produto_nuvem.nome_produto,
-                        categoria=produto_nuvem.categoria,
-                        preco_venda=produto_nuvem.preco_venda,
-                        quantidade_estoque=produto_nuvem.quantidade_estoque,
-                        ativo=produto_nuvem.ativo
-                    )
-
-                    # IMPORTANTE:
-                    # Não informar "id".
-                    # O banco local gera seu próprio ID.
-                    db_local.add(produto_local)
-
-                    baixados += 1
-
-                    continue
-
-                # ----------------------------------------------------------
-                # PRODUTO JÁ EXISTE LOCALMENTE
-                #
-                # Atualiza somente os dados cadastrais.
-                #
-                # O estoque local permanece preservado.
-                # ----------------------------------------------------------
-
-                produto_local.tipo_codigo = produto_nuvem.tipo_codigo
-                produto_local.nome_produto = produto_nuvem.nome_produto
-                produto_local.categoria = produto_nuvem.categoria
-                produto_local.preco_venda = produto_nuvem.preco_venda
-                produto_local.ativo = produto_nuvem.ativo
-
-                atualizados_local += 1
-
-            # Confirma produtos novos/alterações no banco local.
-            db_local.commit()
-
-            # ==============================================================
-            # 3. CORRIGE A SEQUENCE LOCAL DE PRODUTOS
-            #
-            # Como cada banco possui seus próprios IDs, a sequence local
-            # precisa acompanhar o maior ID existente SOMENTE no banco local.
-            #
-            # Isso garante que novos produtos criados localmente não tentem
-            # reutilizar IDs já existentes.
-            # ==============================================================
-
-            db_local.execute(text("""
-                SELECT setval(
-                    pg_get_serial_sequence('produtos', 'id'),
-                    COALESCE((SELECT MAX(id) FROM produtos), 1),
-                    (SELECT COUNT(*) > 0 FROM produtos)
-                )
-            """))
-
             db_local.commit()
 
             logger.info(
-                f"✅ [SYNC] Produtos sincronizados: "
-                f"{enviados} enviado(s), "
-                f"{baixados} baixado(s), "
-                f"{atualizados_nuvem} atualização(ões) no Supabase, "
-                f"{atualizados_local} atualização(ões) local(is), "
-                f"{sem_alteracao} sem alteração. "
-                f"Identidade por código de barras. "
-                f"IDs locais e Supabase independentes. "
-                f"Estoque local preservado."
+                "[SYNC] Produtos: %s enviado(s), %s baixado(s), "
+                "%s atualizado(s) na nuvem, %s atualizado(s) localmente, "
+                "%s sem alteração, %s conflito(s), "
+                "%s alteração(ões) concorrente(s) para reavaliar.",
+                resumo["enviados"],
+                resumo["baixados"],
+                resumo["atualizados_nuvem"],
+                resumo["atualizados_local"],
+                resumo["sem_alteracao"],
+                resumo["conflitos"],
+                resumo["concorrentes"],
             )
 
-        except Exception as e:
+        except Exception:
             db_supabase.rollback()
             db_local.rollback()
+            logger.exception("[SYNC] Falha ao sincronizar produtos.")
 
-            logger.error(
-                f"❌ [SYNC] Falha ao sincronizar Produtos: {e}"
-            )        
-
+            
         # --- 4. SINCRONIZAR CAIXAS (Local atual ↔ Supabase ↔ Local) ---
         try:
             hostname_atual = socket.gethostname()
@@ -542,16 +660,17 @@ def sincronizar_tudo_com_supabase():
                 )
 
                 if caixa_nuvem_atual:
-                    # Somente o próprio computador publica seu status.
-                    caixa_nuvem_atual.esta_aberto = (
-                        caixa_local_atual.esta_aberto
-                    )
+                    # Somente este computador publica sua operação.
+                    for campo, valor in _dados_monitoramento_caixa(
+                        caixa_local_atual
+                    ).items():
+                        setattr(caixa_nuvem_atual, campo, valor)
                 else:
                     # Não copia o ID local. O Supabase gera seu próprio ID.
                     caixa_nuvem_atual = CaixaDispositivo(
                         hostname=caixa_local_atual.hostname,
                         tag_nome=caixa_local_atual.tag_nome,
-                        esta_aberto=caixa_local_atual.esta_aberto,
+                        **_dados_monitoramento_caixa(caixa_local_atual),
                     )
                     db_supabase.add(caixa_nuvem_atual)
 
@@ -580,16 +699,17 @@ def sincronizar_tudo_com_supabase():
 
                     # O computador atual preserva seu próprio estado.
                     if caixa_nuvem.hostname != hostname_atual:
-                        caixa_local.esta_aberto = (
-                            caixa_nuvem.esta_aberto
-                        )
+                        for campo, valor in _dados_monitoramento_caixa(
+                            caixa_nuvem
+                        ).items():
+                            setattr(caixa_local, campo, valor)
                 else:
                     # O banco local gera seu próprio ID.
                     db_local.add(
                         CaixaDispositivo(
                             hostname=caixa_nuvem.hostname,
                             tag_nome=caixa_nuvem.tag_nome,
-                            esta_aberto=caixa_nuvem.esta_aberto,
+                            **_dados_monitoramento_caixa(caixa_nuvem),
                         )
                     )
 
@@ -794,6 +914,12 @@ def sincronizar_tudo_com_supabase():
                 )
 
                 if venda_local:
+                    copiar_pagamentos_venda(
+                        db_supabase,
+                        v_nuvem,
+                        db_local,
+                        venda_local,
+                    )
                     existentes += 1
                     continue
 
@@ -918,6 +1044,12 @@ def sincronizar_tudo_com_supabase():
                 # PUDERAM SER RESOLVIDOS CORRETAMENTE.
                 # ----------------------------------------------------------
                 if itens_recuperados:
+                    copiar_pagamentos_venda(
+                        db_supabase,
+                        v_nuvem,
+                        db_local,
+                        venda_local,
+                    )
                     recuperadas += 1
                 else:
                     db_local.rollback()
@@ -1089,6 +1221,19 @@ def sincronizar_tudo_com_supabase():
                                 )
 
                                 db_supabase.add(ajuste_nuvem)
+
+                        destino = (
+                            venda_existente
+                            if venda_existente is not None
+                            else venda_nuvem
+                        )
+
+                        copiar_pagamentos_venda(
+                            db_local,
+                            v_local,
+                            db_supabase,
+                            destino,
+                        )
 
                         db_supabase.commit()
 

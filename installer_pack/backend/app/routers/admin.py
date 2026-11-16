@@ -8,11 +8,29 @@ from app.utils.security import gerar_senha_hash
 from app.utils.license import exigir_licenca_valida
 from sqlalchemy import func
 
+from datetime import datetime, timezone
+from app.models import CargoUsuario
+from app.routers.pdv import exigir_usuario_pdv
+from app.services.monitoramento_caixas_service import (
+    classificar_atividade,
+)
+
 router = APIRouter(
     prefix="/admin",
     tags=["Gerenciamento Admin"],
     dependencies=[Depends(exigir_licenca_valida)]
 )
+
+def exigir_admin_monitoramento(
+    usuario: Usuario = Depends(exigir_usuario_pdv),
+):
+    if usuario.cargo != CargoUsuario.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem gerenciar os caixas.",
+        )
+
+    return usuario
 
 @router.post("/cadastrar-operador", response_model=UsuarioResponse)
 def cadastrar_operador(payload: UsuarioCreate, db: Session = Depends(get_db)):
@@ -50,15 +68,48 @@ def cadastrar_operador(payload: UsuarioCreate, db: Session = Depends(get_db)):
 
 # 1. Rota para a Jéssica listar todos os caixas no painel Admin
 @router.get("/caixas", response_model=List[CaixaResponse])
-def listar_caixas(db: Session = Depends(get_db)):
-    return db.query(CaixaDispositivo).all()
+def listar_caixas(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(exigir_admin_monitoramento),
+):
+    agora = datetime.now(timezone.utc)
+
+    caixas = (
+        db.query(CaixaDispositivo)
+        .order_by(
+            CaixaDispositivo.esta_aberto.desc(),
+            CaixaDispositivo.tag_nome.asc(),
+            CaixaDispositivo.hostname.asc(),
+        )
+        .all()
+    )
+
+    return [
+        {
+            "id": caixa.id,
+            "hostname": caixa.hostname,
+            "tag_nome": caixa.tag_nome,
+            "esta_aberto": caixa.esta_aberto,
+            "operador_atual": caixa.operador_atual,
+            "aberto_em": caixa.aberto_em,
+            "fechado_em": caixa.fechado_em,
+            "ultima_atividade_em": caixa.ultima_atividade_em,
+            "status_atividade": classificar_atividade(
+                caixa.ultima_atividade_em,
+                agora=agora,
+            ),
+            "referencia_em": agora,
+        }
+        for caixa in caixas
+    ]
 
 # 2. Rota para a Jéssica alterar o nome/tag de um caixa específico
 @router.put("/caixas/{caixa_id}", response_model=CaixaResponse)
 def atualizar_tag_caixa(
     caixa_id: int,
     payload: CaixaUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(exigir_admin_monitoramento),
 ):
     caixa = (
         db.query(CaixaDispositivo)

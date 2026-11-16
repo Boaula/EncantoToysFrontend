@@ -10,11 +10,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import Base, get_db, engine_local, SessionLocal
-from app.routers import produtos, vendas, auth, admin, pdv, sync, fiscal, license
+from app.routers import produtos, vendas, auth, admin, pdv, sync, fiscal, license, clientes, xml_compras, relatorios_vendas
 from app.routers.admin import router as admin_router
 from app.models import Usuario, CaixaDispositivo
 from app.utils.security import gerar_senha_hash
-from app.services.sync_service import sincronizar_tudo_com_supabase
+from app.services.sync_service import (
+    sincronizar_tudo_com_supabase,
+    logger as log_sincronizacao,
+)
 
 load_dotenv()
 
@@ -25,16 +28,25 @@ load_dotenv()
 async def loop_sincronizacao():
     while True:
         try:
-            print("🔄 Iniciando tentativa de sincronização...")
+            log_sincronizacao.debug("Iniciando sincronização.")
+
             await asyncio.wait_for(
                 asyncio.to_thread(sincronizar_tudo_com_supabase),
-                timeout=20.0
+                timeout=20.0,
             )
-            print("🟢 Sincronização concluída com sucesso!")
+
+            log_sincronizacao.debug("Ciclo de sincronização encerrado.")
+
         except asyncio.TimeoutError:
-            print("⚠️ Timeout: Wi-Fi oscilou. Tentando novamente em 30s...")
-        except Exception as e:
-            print(f"⚠️ Erro na sincronização: {e}")
+            log_sincronizacao.warning(
+                "Sincronização excedeu 20 segundos. "
+                "Nova tentativa em 30 segundos."
+            )
+
+        except Exception:
+            log_sincronizacao.exception(
+                "Falha no ciclo de sincronização."
+            )
 
         await asyncio.sleep(30)
 
@@ -108,6 +120,9 @@ app.include_router(pdv.router)
 app.include_router(sync.router)
 app.include_router(fiscal.router)
 app.include_router(license.router)
+app.include_router(clientes.router)
+app.include_router(xml_compras.router)
+app.include_router(relatorios_vendas.router)
 
 # ==============================================================================
 # 5. ROTAS BÁSICAS E DE SISTEMA
@@ -158,45 +173,3 @@ def developer_setup_user(
     return {"status": "sucesso", "message": f"Usuário {payload.username} criado como {payload.cargo}."}
 
 app.include_router(system_router)
-
-# --- Endpoints Diretos de Operação do Caixa (PDV) ---
-class IdentificarPayload(BaseModel):
-    hostname: str
-    username: str
-
-@app.post("/pdv/iniciar-operacao")
-def identificar_maquina(payload: IdentificarPayload, db: Session = Depends(get_db)):
-    caixa = db.query(CaixaDispositivo).filter(CaixaDispositivo.hostname == payload.hostname).first()
-    
-    if not caixa:
-        caixa = CaixaDispositivo(
-            hostname=payload.hostname,
-            tag_nome=f"Caixa Pendente ({payload.hostname})",
-            esta_aberto=True
-        )
-        db.add(caixa)
-    else:
-        caixa.esta_aberto = True
-    
-    db.commit()
-    db.refresh(caixa)
-        
-    return {
-        "tag_nome": caixa.tag_nome,
-        "esta_aberto": caixa.esta_aberto
-    }
-
-class FecharPayload(BaseModel):
-    hostname: str
-
-@app.post("/pdv/fechar-operacao")
-def fechar_operacao(payload: FecharPayload, db: Session = Depends(get_db)):
-    caixa = db.query(CaixaDispositivo).filter(CaixaDispositivo.hostname == payload.hostname).first()
-    
-    if caixa:
-        caixa.esta_aberto = False
-        db.commit()
-        db.refresh(caixa)
-        return {"status": "caixa_fechado", "tag_nome": caixa.tag_nome}
-        
-    return {"status": "erro", "message": "Dispositivo não encontrado"}

@@ -1,437 +1,284 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# ==============================================================================
-# DESINSTALADOR COMPLETO - PDV ENCANTO TOYS
-# ==============================================================================
+# Desinstala o programa, preservando banco, credenciais e documentos.
+# Não utilizar como etapa obrigatória de uma atualização.
 
-set -u
+set -Eeuo pipefail
+umask 077
 
-SERVICE_NAME="encanto-toys-backend.service"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BACKEND_DIR="/opt/encanto-toys-backend"
+SERVICE_NAME="encanto-toys-backend.service"
+SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
+PACKAGE_NAME="encanto-toys"
 
-DB_NAME="encanto_toys"
-DB_USER="encantotoys_user"
-DB_PORT="5433"
+BACKUP_ROOT="/var/backups/encanto-toys"
+XML_PERMANENTE="/var/lib/encanto-toys/compras_xml"
 
-APP_ID="com.encantotoys.pdv"
+BACKUP_HELPER="$SCRIPT_DIR/backend/backup-banco.py"
+PYTHON_INSTALADO="$BACKEND_DIR/.venv/bin/python"
 
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-sucesso() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
-
-aviso() {
-    echo -e "${YELLOW}⚠ $1${NC}"
-}
+SERVICO_ESTAVA_ATIVO=0
+CONCLUIDO=0
+PASTA_BACKUP=""
 
 erro() {
-    echo -e "${RED}✗ $1${NC}"
+    printf 'ERRO: %s\n' "$1" >&2
+    exit 1
 }
 
 info() {
-    echo -e "${BLUE}→ $1${NC}"
+    printf '%s\n' "$1"
 }
 
-# ==============================================================================
-# VERIFICAÇÃO DE ROOT
-# ==============================================================================
+finalizar() {
+    codigo=$?
 
-if [ "$EUID" -ne 0 ]; then
-    erro "Execute este instalador com sudo:"
-    echo
-    echo "sudo ./installer_pack/uninstall-pdv.sh"
-    exit 1
-fi
+    if [ "$CONCLUIDO" -ne 1 ]; then
+        printf '\nProcedimento interrompido.\n' >&2
 
-# Usuário que chamou o sudo
-REAL_USER="${SUDO_USER:-}"
+        if [ -n "$PASTA_BACKUP" ]; then
+            printf 'Confira os arquivos em: %s\n' "$PASTA_BACKUP" >&2
+        fi
 
-if [ -z "$REAL_USER" ]; then
-    REAL_USER="$(logname 2>/dev/null || true)"
-fi
+        if [ "$SERVICO_ESTAVA_ATIVO" -eq 1 ] \
+            && [ -d "$BACKEND_DIR" ] \
+            && [ -f "$SERVICE_FILE" ]; then
 
-if [ -z "$REAL_USER" ]; then
-    REAL_USER="natanael"
-fi
-
-USER_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
-
-# ==============================================================================
-# CABEÇALHO
-# ==============================================================================
-
-clear
-
-echo
-echo "=============================================================="
-echo "       DESINSTALADOR COMPLETO - ENCANTO TOYS PDV"
-echo "=============================================================="
-echo
-echo "Este processo irá remover:"
-echo
-echo "  • Serviço systemd"
-echo "  • Backend instalado em $BACKEND_DIR"
-echo "  • Aplicativo Tauri"
-echo "  • Configurações/cache do aplicativo"
-echo
-echo "O banco PostgreSQL NÃO será removido automaticamente."
-echo
-echo "Você terá uma opção separada para:"
-echo
-echo "  • PRESERVAR o banco"
-echo "  • REMOVER o banco e o usuário PostgreSQL"
-echo
-echo "=============================================================="
-echo
-
-read -r -p "Deseja continuar com a desinstalação? [s/N]: " CONFIRMACAO
-
-case "$CONFIRMACAO" in
-    s|S|sim|SIM|Sim)
-        ;;
-    *)
-        aviso "Desinstalação cancelada."
-        exit 0
-        ;;
-esac
-
-echo
-
-# ==============================================================================
-# 1. PARAR O SERVIÇO
-# ==============================================================================
-
-info "Verificando serviço $SERVICE_NAME..."
-
-if systemctl list-unit-files | grep -q "^${SERVICE_NAME}"; then
-
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        info "Parando o backend..."
-        systemctl stop "$SERVICE_NAME" || true
-        sucesso "Backend parado."
-    else
-        aviso "Backend já estava parado."
-    fi
-
-    info "Desabilitando serviço..."
-    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-
-    if [ -f "/etc/systemd/system/$SERVICE_NAME" ]; then
-        rm -f "/etc/systemd/system/$SERVICE_NAME"
-        sucesso "Arquivo do serviço removido."
-    fi
-
-    systemctl daemon-reload
-    systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
-
-else
-    aviso "Serviço $SERVICE_NAME não encontrado."
-fi
-
-# ==============================================================================
-# 2. ENCERRAR PROCESSOS DO BACKEND
-# ==============================================================================
-
-info "Verificando processos do backend..."
-
-pkill -f "$BACKEND_DIR" 2>/dev/null || true
-pkill -f "uvicorn app.main:app" 2>/dev/null || true
-
-sucesso "Processos do backend verificados."
-
-# ==============================================================================
-# 3. REMOVER BACKEND
-# ==============================================================================
-
-if [ -d "$BACKEND_DIR" ]; then
-    info "Removendo backend instalado em:"
-    echo "  $BACKEND_DIR"
-
-    rm -rf "$BACKEND_DIR"
-
-    sucesso "Backend removido."
-else
-    aviso "Diretório do backend não encontrado."
-fi
-
-# ==============================================================================
-# 4. REMOVER APLICAÇÃO TAURI
-# ==============================================================================
-
-info "Procurando aplicativo Encanto Toys..."
-
-APP_PATHS=(
-    "/usr/bin/encanto-toys"
-    "/usr/local/bin/encanto-toys"
-    "/opt/Encanto Toys"
-    "/opt/encanto-toys"
-    "/usr/share/applications/encanto-toys.desktop"
-    "/usr/share/applications/com.encantotoys.pdv.desktop"
-)
-
-for PATH_ITEM in "${APP_PATHS[@]}"; do
-    if [ -e "$PATH_ITEM" ]; then
-        rm -rf "$PATH_ITEM"
-        sucesso "Removido: $PATH_ITEM"
-    fi
-done
-
-# ==============================================================================
-# 5. REMOVER CONFIGURAÇÕES DO ROOT
-# ==============================================================================
-
-info "Removendo configurações do root..."
-
-rm -rf "/root/.local/share/$APP_ID"
-rm -rf "/root/.config/$APP_ID"
-rm -rf "/root/.cache/$APP_ID"
-
-# ==============================================================================
-# 6. REMOVER CONFIGURAÇÕES DO USUÁRIO REAL
-# ==============================================================================
-
-if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
-
-    info "Removendo configurações do usuário $REAL_USER..."
-
-    rm -rf "$USER_HOME/.local/share/$APP_ID"
-    rm -rf "$USER_HOME/.config/$APP_ID"
-    rm -rf "$USER_HOME/.cache/$APP_ID"
-
-    sucesso "Configurações do aplicativo removidas."
-
-else
-    aviso "Diretório HOME do usuário não encontrado."
-fi
-
-# ==============================================================================
-# 7. REMOVER ARQUIVOS DESKTOP
-# ==============================================================================
-
-DESKTOP_FILES=(
-    "/usr/share/applications/encanto-toys.desktop"
-    "/usr/share/applications/encanto-toys-pdv.desktop"
-    "/usr/share/applications/com.encantotoys.pdv.desktop"
-)
-
-for DESKTOP in "${DESKTOP_FILES[@]}"; do
-    if [ -f "$DESKTOP" ]; then
-        rm -f "$DESKTOP"
-        sucesso "Atalho removido: $DESKTOP"
-    fi
-done
-
-# ==============================================================================
-# 8. ATUALIZAR CACHE DE APLICATIVOS
-# ==============================================================================
-
-if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database /usr/share/applications 2>/dev/null || true
-fi
-
-# ==============================================================================
-# 9. OPÇÃO DE REMOVER BANCO
-# ==============================================================================
-
-echo
-echo "=============================================================="
-echo "             BANCO DE DADOS LOCAL"
-echo "=============================================================="
-echo
-echo "Banco:"
-echo "  $DB_NAME"
-echo
-echo "Usuário PostgreSQL:"
-echo "  $DB_USER"
-echo
-echo "Porta:"
-echo "  $DB_PORT"
-echo
-echo "ATENÇÃO:"
-echo
-echo "Se você escolher SIM, serão removidos:"
-echo
-echo "  • Banco $DB_NAME"
-echo "  • Usuário $DB_USER"
-echo
-echo "TODOS OS DADOS LOCAIS DESSE BANCO SERÃO PERDIDOS."
-echo
-echo "=============================================================="
-echo
-
-read -r -p "Deseja APAGAR o banco local e o usuário PostgreSQL? [s/N]: " REMOVER_BANCO
-
-case "$REMOVER_BANCO" in
-
-    s|S|sim|SIM|Sim)
-
-        echo
-        aviso "Você escolheu REMOVER o banco local."
-        echo
-
-        read -r -p "Digite APAGAR para confirmar: " CONFIRMACAO_DB
-
-        if [ "$CONFIRMACAO_DB" = "APAGAR" ]; then
-
-            # ------------------------------------------------------------------
-            # Verificar se PostgreSQL está disponível
-            # ------------------------------------------------------------------
-
-            if command -v psql >/dev/null 2>&1; then
-
-                info "Verificando banco $DB_NAME..."
-
-                DB_EXISTS=$(
-                    sudo -u postgres psql \
-                        -p "$DB_PORT" \
-                        -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME';" \
-                        2>/dev/null || true
-                )
-
-                if [ "$DB_EXISTS" = "1" ]; then
-
-                    info "Encerrando conexões do banco..."
-
-                    sudo -u postgres psql \
-                        -p "$DB_PORT" \
-                        -d postgres \
-                        -c "
-                            SELECT pg_terminate_backend(pid)
-                            FROM pg_stat_activity
-                            WHERE datname='$DB_NAME'
-                            AND pid <> pg_backend_pid();
-                        " >/dev/null 2>&1 || true
-
-                    info "Removendo banco $DB_NAME..."
-
-                    sudo -u postgres psql \
-                        -p "$DB_PORT" \
-                        -d postgres \
-                        -c "DROP DATABASE \"$DB_NAME\";" \
-                        >/dev/null
-
-                    sucesso "Banco $DB_NAME removido."
-
-                else
-                    aviso "Banco $DB_NAME não existe."
-                fi
-
-                # ------------------------------------------------------------------
-                # Remover usuário PostgreSQL
-                # ------------------------------------------------------------------
-
-                info "Verificando usuário PostgreSQL $DB_USER..."
-
-                ROLE_EXISTS=$(
-                    sudo -u postgres psql \
-                        -p "$DB_PORT" \
-                        -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER';" \
-                        2>/dev/null || true
-                )
-
-                if [ "$ROLE_EXISTS" = "1" ]; then
-
-                    info "Removendo usuário $DB_USER..."
-
-                    sudo -u postgres psql \
-                        -p "$DB_PORT" \
-                        -d postgres \
-                        -c "DROP ROLE \"$DB_USER\";" \
-                        >/dev/null
-
-                    sucesso "Usuário PostgreSQL $DB_USER removido."
-
-                else
-                    aviso "Usuário PostgreSQL $DB_USER não existe."
-                fi
-
+            if systemctl start "$SERVICE_NAME"; then
+                printf 'O backend anterior foi iniciado novamente.\n' >&2
             else
-                erro "Comando psql não encontrado."
-                aviso "O banco não foi removido."
+                printf 'Não foi possível reiniciar o backend anterior.\n' >&2
             fi
-
-        else
-
-            aviso "Confirmação incorreta."
-            aviso "O banco foi PRESERVADO."
-
         fi
+    fi
 
+    trap - EXIT
+    exit "$codigo"
+}
+
+trap finalizar EXIT
+
+[ "$EUID" -eq 0 ] || erro \
+    "Execute com sudo."
+
+[ "$#" -eq 0 ] || erro \
+    "Este desinstalador não aceita opções de exclusão do banco."
+
+[ ! -L "$BACKEND_DIR" ] || erro \
+    "O diretório instalado é um link simbólico. Revise manualmente."
+
+[ -d "$BACKEND_DIR" ] || erro \
+    "Backend instalado não encontrado. Nenhum arquivo foi removido."
+
+[ -f "$BACKEND_DIR/.env" ] || erro \
+    "Configuração instalada não encontrada. Nenhum arquivo foi removido."
+
+[ -x "$PYTHON_INSTALADO" ] || erro \
+    "Python da instalação não encontrado. Nenhum arquivo foi removido."
+
+[ -f "$BACKUP_HELPER" ] || erro \
+    "backup-banco.py não encontrado no pacote."
+
+for comando in systemctl tar dpkg dpkg-query pgrep realpath diff; do
+    command -v "$comando" >/dev/null || erro \
+        "Comando necessário não encontrado: $comando"
+done
+
+if pgrep -x "encanto-toys" >/dev/null; then
+    erro "Feche o aplicativo Encanto Toys antes de continuar."
+fi
+
+STATUS_PACOTE="$(
+    dpkg-query -W -f='${db:Status-Status}' "$PACKAGE_NAME" \
+        2>/dev/null || true
+)"
+
+if [ "$STATUS_PACOTE" != "installed" ]; then
+    erro "Pacote instalado não identificado. Revise antes de remover arquivos."
+fi
+
+# Ler apenas a identificação do banco e o caminho dos XMLs.
+# A senha não é impressa.
+METADADOS="$(
+    "$PYTHON_INSTALADO" - "$BACKEND_DIR/.env" <<'PY'
+import sys
+from pathlib import Path
+
+from dotenv import dotenv_values
+from sqlalchemy.engine import make_url
+
+config = dotenv_values(sys.argv[1], interpolate=False)
+valor = config.get("LOCAL_DATABASE_URL")
+
+if not valor:
+    raise SystemExit("LOCAL_DATABASE_URL ausente.")
+
+url = make_url(valor)
+
+if not (
+    url.get_backend_name() == "postgresql"
+    and url.host in ("127.0.0.1", "localhost")
+    and url.port == 5433
+    and url.database == "encanto_toys"
+    and url.username == "encantotoys_user"
+):
+    raise SystemExit(
+        "Banco diferente da instalação de produção esperada."
+    )
+
+xml = (config.get("COMPRAS_XML_DIR") or "").strip()
+
+if xml and not Path(xml).is_absolute():
+    raise SystemExit("COMPRAS_XML_DIR deve ser absoluto.")
+
+for valor in (url.host, url.username, url.database, xml):
+    if "\n" in valor or "\r" in valor:
+        raise SystemExit("Configuração com formato inválido.")
+    print(valor)
+PY
+)"
+
+mapfile -t CONFIGURACAO <<< "$METADADOS"
+
+DB_HOST="${CONFIGURACAO[0]:-}"
+DB_USER="${CONFIGURACAO[1]:-}"
+DB_NAME="${CONFIGURACAO[2]:-}"
+XML_DIR="${CONFIGURACAO[3]:-}"
+
+PG_VERSAO="$(
+    pg_lsclusters --no-header |
+        awk '$3 == 5433 { print $1 }'
+)"
+
+case "$PG_VERSAO" in
+    16|17)
+        PG_BIN_LOCAL="/usr/lib/postgresql/$PG_VERSAO/bin"
         ;;
-
     *)
-
-        echo
-        sucesso "Banco de dados PRESERVADO."
-        echo
-        echo "Banco: $DB_NAME"
-        echo "Usuário: $DB_USER"
-        echo
-
+        erro "PostgreSQL local não identificado com segurança."
         ;;
-
 esac
 
-# ==============================================================================
-# 10. VERIFICAÇÕES FINAIS
-# ==============================================================================
+[ -n "$DB_HOST" ] && [ -n "$DB_USER" ] && [ -n "$DB_NAME" ] \
+    || erro "Identificação do banco incompleta."
 
-echo
-echo "=============================================================="
-echo "                  VERIFICAÇÃO FINAL"
-echo "=============================================================="
-echo
+if [ -n "$XML_DIR" ]; then
+    XML_DIR="$(realpath -m -- "$XML_DIR")"
 
+    case "$XML_DIR" in
+        /|/home|/opt|/var|/var/lib|"$BACKEND_DIR")
+            erro "Pasta de XMLs ampla demais. Revise a configuração."
+            ;;
+    esac
+fi
+
+printf '\nDESINSTALAÇÃO DO ENCANTO TOYS\n\n'
+printf 'Será removido o aplicativo e seu serviço.\n'
+printf 'O banco %s será PRESERVADO.\n' "$DB_NAME"
+printf 'Os XMLs e as configurações serão preservados.\n'
+printf 'Nenhum banco Supabase será alterado.\n\n'
+
+read -r -p "Digite DESINSTALAR para continuar: " CONFIRMACAO
+
+[ "$CONFIRMACAO" = "DESINSTALAR" ] || erro \
+    "Confirmação não recebida. Nenhuma remoção foi executada."
+
+mkdir -p "$BACKUP_ROOT"
+chmod 700 "$BACKUP_ROOT"
+
+PASTA_BACKUP="$(
+    mktemp -d \
+        "$BACKUP_ROOT/desinstalacao_$(date -u +%Y-%m-%d_%H-%M-%S)_UTC_XXXXXX"
+)"
+
+# Parar antes de copiar banco e documentos.
+# Se o backup falhar, a rotina de saída tentará reiniciar o serviço.
 if systemctl is-active --quiet "$SERVICE_NAME"; then
-    erro "O serviço ainda está ativo."
-else
-    sucesso "Serviço do backend está parado."
+    SERVICO_ESTAVA_ATIVO=1
+    systemctl stop "$SERVICE_NAME"
 fi
 
-if [ -d "$BACKEND_DIR" ]; then
-    erro "Diretório do backend ainda existe: $BACKEND_DIR"
-else
-    sucesso "Backend removido."
+info "Fazendo backup obrigatório do banco local..."
+
+ARQUIVO_BANCO="$(
+    "$PYTHON_INSTALADO" "$BACKUP_HELPER" \
+        --env-file "$BACKEND_DIR/.env" \
+        --destino local \
+        --confirmar-host "$DB_HOST" \
+        --confirmar-usuario "$DB_USER" \
+        --confirmar-banco "$DB_NAME" \
+        --pasta "$PASTA_BACKUP" \
+        --pg-bin-dir "$PG_BIN_LOCAL"
+)"
+
+[ -s "$ARQUIVO_BANCO" ] || erro \
+    "Backup do banco não foi concluído."
+
+info "Copiando os arquivos da instalação..."
+
+tar -czf "$PASTA_BACKUP/backend_instalado.tar.gz" \
+    -C /opt encanto-toys-backend
+
+tar -tzf "$PASTA_BACKUP/backend_instalado.tar.gz" >/dev/null
+
+if [ -f "$SERVICE_FILE" ]; then
+    cp -a "$SERVICE_FILE" "$PASTA_BACKUP/"
 fi
 
-if ss -lntp 2>/dev/null | grep -q ':8000'; then
-    aviso "A porta 8000 ainda está sendo utilizada:"
-    ss -lntp 2>/dev/null | grep ':8000' || true
-else
-    sucesso "Porta 8000 está livre."
+# Documentos fora do backend também precisam de backup.
+if [ -n "$XML_DIR" ] && [ -d "$XML_DIR" ]; then
+    tar -czf "$PASTA_BACKUP/xmls_originais.tar.gz" \
+        -C "$XML_DIR" .
+
+    tar -tzf "$PASTA_BACKUP/xmls_originais.tar.gz" >/dev/null
 fi
 
-# ==============================================================================
-# FINAL
-# ==============================================================================
+# Se os XMLs estiverem dentro do backend, preservá-los fora dele.
+# Não distribuir esses documentos para outros computadores.
+case "$XML_DIR" in
+    "$BACKEND_DIR"/*)
+        if [ -d "$XML_DIR" ]; then
+            if [ -e "$XML_PERMANENTE" ]; then
+                [ -d "$XML_PERMANENTE" ] || erro \
+                    "O destino permanente dos XMLs não é uma pasta."
 
-echo
-echo "=============================================================="
-echo "        DESINSTALAÇÃO DO ENCANTO TOYS FINALIZADA"
-echo "=============================================================="
-echo
-echo "O serviço, backend e arquivos do aplicativo foram removidos."
-echo
-echo "O banco foi:"
-echo
+                diff -qr "$XML_DIR" "$XML_PERMANENTE" >/dev/null \
+                    || erro \
+                    "Já existe outra coleção de XMLs no destino permanente. Revise antes de continuar."
+            else
+                mkdir -p "$(dirname "$XML_PERMANENTE")"
+                cp -a "$XML_DIR" "$XML_PERMANENTE"
 
-case "$REMOVER_BANCO" in
-    s|S|sim|SIM|Sim)
-        if [ "${CONFIRMACAO_DB:-}" = "APAGAR" ]; then
-            echo "  → REMOVIDO"
-        else
-            echo "  → PRESERVADO"
+                diff -qr "$XML_DIR" "$XML_PERMANENTE" >/dev/null \
+                    || erro "A preservação dos XMLs não foi conferida."
+            fi
         fi
-        ;;
-    *)
-        echo "  → PRESERVADO"
         ;;
 esac
 
-echo
-echo "=============================================================="
+info "Backups concluídos. Removendo o pacote do aplicativo..."
+
+dpkg --remove "$PACKAGE_NAME"
+
+if [ -f "$SERVICE_FILE" ]; then
+    systemctl disable "$SERVICE_NAME"
+fi
+
+# Guardar o diretório completo em vez de apagá-lo.
+mv "$BACKEND_DIR" "$PASTA_BACKUP/backend_preservado"
+
+if [ -f "$SERVICE_FILE" ]; then
+    rm -- "$SERVICE_FILE"
+fi
+
+systemctl daemon-reload
+
+CONCLUIDO=1
+
+printf '\nDESINSTALAÇÃO CONCLUÍDA.\n'
+printf 'Banco e usuário PostgreSQL preservados.\n'
+printf 'Configurações e documentos do usuário não foram apagados.\n'
+printf 'Backup e backend anterior: %s\n' "$PASTA_BACKUP"
+printf 'Nenhum banco Supabase foi alterado.\n'

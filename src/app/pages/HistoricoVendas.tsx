@@ -36,6 +36,8 @@ import type {
   XmlCompraArquivado,
 } from "../../services/api";
 
+import { CampoData } from "../components/CampoData";
+
 function nomeMetodoPagamento(valor: string): string {
   const texto = valor
     .replace(/^FormaPagamento\./i, "")
@@ -635,30 +637,25 @@ const handleImprimir = async (venda: VendaHistorico) => {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           {/* Data Início */}
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-500">Data Inicial</label>
-            <div className="relative">
-              <input
-                type="date"
-                value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-primary bg-slate-50/50"
-              />
-              <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            </div>
+            <label htmlFor="historico-data-inicial" className="text-[11px] font-semibold text-slate-500">
+              Data Inicial
+            </label>
+            <CampoData
+              id="historico-data-inicial"
+              value={dataInicio}
+              onChange={setDataInicio}
+            />
           </div>
 
-          {/* Data Fim */}
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-500">Data Final</label>
-            <div className="relative">
-              <input
-                type="date"
-                value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-primary bg-slate-50/50"
-              />
-              <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            </div>
+            <label htmlFor="historico-data-final" className="text-[11px] font-semibold text-slate-500">
+              Data Final
+            </label>
+            <CampoData
+              id="historico-data-final"
+              value={dataFim}
+              onChange={setDataFim}
+            />
           </div>
 
           {/* Forma de Pagamento */}

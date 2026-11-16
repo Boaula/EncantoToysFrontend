@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { TagIdentificadoraPDV } from "../components/TagIdentificadoraPDV";
-import { pdvService, type Product, type CartItem } from "../../services/api";
+import { pdvService, clienteService, type Product, type CartItem } from "../../services/api";
 import { Search, X, CreditCard, Banknote, Smartphone, Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -26,6 +26,17 @@ export function PDV() {
   const [productsList, setProductsList] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [mostrarCadastroRapido, setMostrarCadastroRapido] = useState(false);
+const [nomeCliente, setNomeCliente] = useState("");
+const [telefoneCliente, setTelefoneCliente] = useState("");
+const [salvandoCliente, setSalvandoCliente] = useState(false);
+
+const seguirParaPagamento = () => {
+  setMostrarCadastroRapido(false);
+  setNomeCliente("");
+  setTelefoneCliente("");
+  setShowPaymentDialog(true);};
+
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -62,6 +73,9 @@ export function PDV() {
   // ⌨️ Keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
+      
+      if (mostrarCadastroRapido || showPaymentDialog || showCashModal) return;
+
       // 🟢 F2: Focar na busca
       if (e.key === "F2" || e.code === "F2") {
         e.preventDefault();
@@ -81,7 +95,7 @@ export function PDV() {
       // 🟢 F4: Abrir pagamento
       if ((e.key === "F4" || e.code === "F4") && cart.length > 0) {
         e.preventDefault();
-        setShowPaymentDialog(true);
+        setMostrarCadastroRapido(true);
       }
 
       // 🟢 ESC: Limpar busca
@@ -95,7 +109,7 @@ export function PDV() {
     // Ele faz o evento ser interceptado ANTES de qualquer outro elemento da tela
     window.addEventListener("keydown", handleKeyPress, true);
     return () => window.removeEventListener("keydown", handleKeyPress, true);
-  }, [search, cart]);
+  }, [search, cart, mostrarCadastroRapido, showPaymentDialog, showCashModal]);
 
   // ⏰ Relógio ao vivo
   useEffect(() => {
@@ -476,7 +490,7 @@ const handlePayment = (method: string) => {
               <Button
                 size="lg"
                 className="w-full h-14 text-lg"
-                onClick={() => setShowPaymentDialog(true)}
+                onClick={() => setMostrarCadastroRapido(true)}
                 disabled={cart.length === 0}
               >
                 Finalizar Venda (F4)
@@ -485,6 +499,94 @@ const handlePayment = (method: string) => {
           </Card>
         </div>
       </div>
+
+      <Dialog
+        open={mostrarCadastroRapido}
+        onOpenChange={(aberto) => {
+          if (!aberto && !salvandoCliente) seguirParaPagamento();
+        }}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          onInteractOutside={(evento) => evento.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>Cadastrar cliente</DialogTitle>
+            <DialogDescription>
+              Informe o nome e o telefone ou feche no X para seguir ao pagamento.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            className="space-y-4"
+            onSubmit={async (evento) => {
+              evento.preventDefault();
+              if (salvandoCliente) return;
+
+              const nome = nomeCliente.trim();
+              const telefone = telefoneCliente.replace(/\D/g, "");
+
+              if (!nome || !telefone) {
+                toast.error("Informe o nome e o telefone do cliente.");
+                return;
+              }
+
+              setSalvandoCliente(true);
+
+              try {
+                await clienteService.criar({ nome, telefone });
+                toast.success("Cliente cadastrado com sucesso!");
+                seguirParaPagamento();
+              } catch (erro) {
+                toast.error(
+                  erro instanceof Error && erro.message !== "[object Object]"
+                    ? erro.message
+                    : "Não foi possível cadastrar o cliente. Confira os dados ou feche no X."
+                );
+              } finally {
+                setSalvandoCliente(false);
+              }
+            }}
+          >
+            <div className="space-y-1">
+              <label htmlFor="pdv-cliente-nome" className="text-sm font-medium">
+                Nome
+              </label>
+              <Input
+                id="pdv-cliente-nome"
+                value={nomeCliente}
+                onChange={(evento) => setNomeCliente(evento.target.value)}
+                autoComplete="name"
+                maxLength={150}
+                disabled={salvandoCliente}
+                required
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="pdv-cliente-telefone" className="text-sm font-medium">
+                Telefone
+              </label>
+              <Input
+                id="pdv-cliente-telefone"
+                type="tel"
+                value={telefoneCliente}
+                onChange={(evento) => setTelefoneCliente(evento.target.value)}
+                autoComplete="tel"
+                maxLength={20}
+                disabled={salvandoCliente}
+                required
+              />
+            </div>
+
+            <DialogFooter>
+              <Button type="submit" disabled={salvandoCliente}>
+                {salvandoCliente ? "Salvando..." : "Salvar cliente e continuar"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>      
 
       {/* Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>

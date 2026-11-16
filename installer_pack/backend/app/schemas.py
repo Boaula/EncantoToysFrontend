@@ -1,45 +1,88 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, model_validator, field_validator
+from decimal import Decimal
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date
 from app.models import TipoCodigo, CargoUsuario, FormaPagamento
 
 # ==========================================
 # --- SCHEMAS DE PRODUTO ---
 # ==========================================
-class ProdutoBase(BaseModel):
+class ProdutoDadosCompra(BaseModel):
+    quantidade_compra: Optional[int] = Field(default=None, gt=0)
+
+    valor_compra_total: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+    frete_total: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+    imposto_total: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+    outras_despesas_total: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+
+    fornecedor: Optional[str] = Field(default=None, max_length=150)
+    data_validade: Optional[date] = None
+
+
+class ProdutoBase(ProdutoDadosCompra):
     nome_produto: str
-    categoria: str = Field(default="Geral", description="Categoria do brinquedo/produto")
-    preco_venda: float = Field(gt=0, description="Preço deve ser maior que zero")
+    categoria: str = "Geral"
+    preco_venda: float = Field(gt=0)
     quantidade_estoque: int = Field(default=0, ge=0)
 
-# Para criar um novo produto
+
 class ProdutoCreate(ProdutoBase):
     codigo_barras: str
-    tipo_codigo: Optional[str] = "FABRICA"
-    nome_produto: str
-    preco_venda: float
-    quantidade_estoque: int
-    categoria: Optional[str] = "Geral"
-    ativo: Optional[bool] = True
+    tipo_codigo: TipoCodigo = TipoCodigo.FABRICA
+    ativo: bool = True
 
-# Para responder ao Frontend após criar
+    @model_validator(mode="after")
+    def validar_dados_compra(self):
+        valores = (
+            self.quantidade_compra,
+            self.valor_compra_total,
+            self.frete_total,
+            self.imposto_total,
+            self.outras_despesas_total,
+        )
+
+        if any(valor is not None for valor in valores):
+            if (
+                self.quantidade_compra is None
+                or self.valor_compra_total is None
+            ):
+                raise ValueError(
+                    "Ao informar dados de compra, preencha a quantidade "
+                    "comprada e o valor total dos produtos."
+                )
+
+        return self
+
+
 class ProdutoResponse(ProdutoBase):
     id: int
     codigo_barras: str
     tipo_codigo: TipoCodigo
+    custo_unitario: Optional[Decimal] = None
+    dados_produto_atualizados_em: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
-# 🎯 SCHEMA DEDICADO AO PDV (Mapeia para o React)
-class ProdutoPDVResponse(BaseModel):
+class ProdutoPDVResponse(ProdutoDadosCompra):
     id: int
     name: str
     barcode: str
     category: str
     price: float
     stock: int
+
+    custo_unitario: Optional[Decimal] = None
+    dados_produto_atualizados_em: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -52,7 +95,16 @@ class ProdutoPDVResponse(BaseModel):
             barcode=obj.codigo_barras or "",
             category=obj.categoria or "Geral",
             price=float(obj.preco_venda),
-            stock=obj.quantidade_estoque
+            stock=obj.quantidade_estoque,
+            quantidade_compra=obj.quantidade_compra,
+            valor_compra_total=obj.valor_compra_total,
+            frete_total=obj.frete_total,
+            imposto_total=obj.imposto_total,
+            outras_despesas_total=obj.outras_despesas_total,
+            custo_unitario=obj.custo_unitario,
+            fornecedor=obj.fornecedor,
+            data_validade=obj.data_validade,
+            dados_produto_atualizados_em=obj.dados_produto_atualizados_em,
         )
 
 
@@ -77,6 +129,75 @@ class ItemVendaResponse(ItemVendaBase):
     class Config:
         from_attributes = True
 
+class PagamentoVendaCreate(BaseModel):
+    forma_pagamento: FormaPagamento
+
+    valor: Decimal = Field(
+        gt=0,
+        max_digits=14,
+        decimal_places=2,
+        allow_inf_nan=False,
+    )
+
+    valor_recebido: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        max_digits=14,
+        decimal_places=2,
+        allow_inf_nan=False,
+    )
+
+    @model_validator(mode="after")
+    def validar_recebimento(self):
+        if self.forma_pagamento == FormaPagamento.MISTO:
+            raise ValueError(
+                "Cada parcela deve informar dinheiro, "
+                "PIX, crédito ou débito."
+            )
+
+        if self.valor_recebido is not None:
+            if self.forma_pagamento != FormaPagamento.DINHEIRO:
+                raise ValueError(
+                    "Valor recebido e troco são exclusivos "
+                    "do pagamento em dinheiro."
+                )
+
+            if self.valor_recebido < self.valor:
+                raise ValueError(
+                    "O dinheiro recebido não pode ser menor "
+                    "que o valor aplicado à venda."
+                )
+
+        return self
+
+
+class PagamentosVendaCreate(BaseModel):
+    valor_total: Decimal = Field(
+        gt=0,
+        max_digits=14,
+        decimal_places=2,
+        allow_inf_nan=False,
+    )
+
+    pagamentos: List[PagamentoVendaCreate] = Field(
+        min_length=1,
+        max_length=20,
+    )
+
+    @model_validator(mode="after")
+    def conferir_total(self):
+        total_pagamentos = sum(
+            (pagamento.valor for pagamento in self.pagamentos),
+            Decimal("0.00"),
+        )
+
+        if total_pagamentos != self.valor_total:
+            raise ValueError(
+                "A soma dos pagamentos deve ser igual "
+                "ao total final da venda."
+            )
+
+        return self
 
 # ==========================================
 # --- SCHEMAS DE VENDA ---
@@ -84,7 +205,14 @@ class ItemVendaResponse(ItemVendaBase):
 class VendaCreate(BaseModel):
     caixa_id: Optional[int] = 1
     usuario_id: Optional[int] = 1
-    forma_pagamento: str  # ex: "PIX", "DINHEIRO", "CARTAO_CREDITO", "CARTAO_DEBITO"
+    forma_pagamento: Optional[str] = None
+
+    pagamentos: Optional[List[PagamentoVendaCreate]] = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+    )
+
     valor_total: float
 
     subtotal: Optional[float] = 0.0
@@ -95,6 +223,57 @@ class VendaCreate(BaseModel):
     
     itens: List[ItemVendaCreate]
 
+    @model_validator(mode="after")
+    def validar_formas_de_pagamento(self):
+        if self.pagamentos is not None:
+            formas = {
+                pagamento.forma_pagamento
+                for pagamento in self.pagamentos
+            }
+
+            forma_resumo = (
+                FormaPagamento.MISTO
+                if len(formas) > 1
+                else self.pagamentos[0].forma_pagamento
+            )
+
+            # O resumo é determinado pelos pagamentos informados.
+            self.forma_pagamento = forma_resumo.name
+
+        else:
+            texto = (self.forma_pagamento or "").strip().upper()
+
+            # Aceita os nomes utilizados pelo frontend.
+            aliases = {
+                "CARTAO_CREDITO": "CREDITO",
+                "CARTÃO CRÉDITO": "CREDITO",
+                "CARTAO_DEBITO": "DEBITO",
+                "CARTÃO DÉBITO": "DEBITO",
+            }
+
+            texto = aliases.get(texto, texto)
+
+            try:
+                forma = FormaPagamento[texto]
+            except KeyError:
+                raise ValueError("Forma de pagamento inválida.")
+
+            if forma == FormaPagamento.MISTO:
+                raise ValueError(
+                    "Uma venda mista precisa informar "
+                    "a lista dos pagamentos."
+                )
+
+            self.forma_pagamento = forma.name
+
+        return self
+
+class PagamentoVendaResponse(BaseModel):
+    uuid: Optional[str] = None
+    forma_pagamento: str
+    valor: Decimal
+    valor_recebido: Optional[Decimal] = None
+    troco: Decimal
 
 class VendaResponse(BaseModel):
     id: int
@@ -103,6 +282,9 @@ class VendaResponse(BaseModel):
     forma_pagamento: FormaPagamento
     data_venda: datetime
     sincronizado: bool
+    pagamentos: List[PagamentoVendaResponse] = Field(
+        default_factory=list
+    )
 
     class Config:
         from_attributes = True
@@ -130,6 +312,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     cargo: str
+    usuario_id: int
 
 
 # ==========================================
@@ -140,6 +323,14 @@ class CaixaResponse(BaseModel):
     hostname: str
     tag_nome: str
     esta_aberto: bool
+
+    operador_atual: Optional[str] = None
+    aberto_em: Optional[datetime] = None
+    fechado_em: Optional[datetime] = None
+    ultima_atividade_em: Optional[datetime] = None
+
+    status_atividade: Optional[str] = None
+    referencia_em: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -186,9 +377,76 @@ class VendaHistoricoResponse(BaseModel):
     nome_usuario: Optional[str] = "Operador"
     itens: List[ItemVendaHistoricoResponse] = []
     ajustes: Optional[List[VendaAjusteResponse]] = []
+    pagamentos: List[PagamentoVendaResponse] = Field(
+        default_factory=list
+    )
 
     class Config:
         from_attributes = True
+
+# ==========================================
+# --- CLIENTES ---
+# ==========================================
+
+class ClienteBase(BaseModel):
+    nome: str = Field(..., min_length=1, max_length=150)
+    cpf: Optional[str] = Field(None, max_length=14)
+    telefone: Optional[str] = Field(None, max_length=20)
+    email: Optional[EmailStr] = None
+    data_nascimento: Optional[date] = None
+    observacoes: Optional[str] = None
+    ativo: bool = True
+
+    @field_validator(
+        "cpf",
+        "telefone",
+        "email",
+        "data_nascimento",
+        "observacoes",
+        mode="before",
+    )
+    @classmethod
+    def normalizar_campos_opcionais(cls, valor):
+        if isinstance(valor, str):
+            return valor.strip() or None
+        return valor
+
+
+class ClienteCreate(ClienteBase):
+    pass
+
+
+class ClienteUpdate(BaseModel):
+    nome: Optional[str] = Field(None, min_length=1, max_length=150)
+    cpf: Optional[str] = Field(None, max_length=14)
+    telefone: Optional[str] = Field(None, max_length=20)
+    email: Optional[EmailStr] = None
+    data_nascimento: Optional[date] = None    
+    observacoes: Optional[str] = None
+    ativo: Optional[bool] = None
+
+    @field_validator(
+        "cpf",
+        "telefone",
+        "email",
+        "data_nascimento",
+        "observacoes",
+        mode="before",
+    )
+    @classmethod
+    def normalizar_campos_opcionais(cls, valor):
+        if isinstance(valor, str):
+            return valor.strip() or None
+        return valor    
+
+
+class ClienteResponse(ClienteBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True        
 
 # ==========================================
 # --- EMPRESA NFC ---
