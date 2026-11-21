@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { TagIdentificadoraPDV } from "../components/TagIdentificadoraPDV";
-import { pdvService, clienteService, type Product, type CartItem } from "../../services/api";
+import { pdvService, clienteService, caixaFinanceiroService, type Product, type CartItem } from "../../services/api";
 import { Search, X, CreditCard, Banknote, Smartphone, Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -16,7 +16,6 @@ import { obterAlertaValidade } from "../../services/validators";
 import {
   lerCentavos,
   textoMonetario,
-  totalEmCentavos,
 } from "../../services/pagamentosVenda";
 
 
@@ -73,7 +72,9 @@ const seguirParaPagamento = () => {
   // ⌨️ Keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      
+
+      if (e.target instanceof HTMLElement && e.target.closest('[role="dialog"]')) return;    
+
       if (mostrarCadastroRapido || showPaymentDialog || showCashModal) return;
 
       // 🟢 F2: Focar na busca
@@ -104,7 +105,6 @@ const seguirParaPagamento = () => {
         setSearch("");
       }
     };
-
     // 🔴 O segredo está no parâmetro 'true' no final:
     // Ele faz o evento ser interceptado ANTES de qualquer outro elemento da tela
     window.addEventListener("keydown", handleKeyPress, true);
@@ -187,85 +187,18 @@ const seguirParaPagamento = () => {
     }
   };
 
-const handlePayment = (method: string) => {
-  if (cart.length === 0) return;
+  const handlePayment = (method: string) => {
+    if (cart.length === 0) return;
 
-  setShowPaymentDialog(false);
-
-  if (method === "Dinheiro") {
-    setShowCashModal(true);
-    return;
-  }
-
-  navigate("/checkout", {
-    state: {
-      cart,
-      total: getTotal(),
-      paymentMethod: method,
-      valorPago: 0,
-      troco: 0,
-    },
-  });
-};
-
-  const handleConfirmCashPayment = (valorPago: number, troco: number) => {
-    setShowCashModal(false);
-
+    setShowPaymentDialog(false);
     navigate("/checkout", {
       state: {
-        cart: cart,
+        cart,
         total: getTotal(),
-        paymentMethod: "Dinheiro",
-        valorPago: valorPago,
-        troco: troco,
+        paymentMethod: method,
       },
     });
   };
-
-  const handleAdicionarPagamentoDinheiro = (
-  valorDinheiro: string,
-) => {
-  const dinheiro = lerCentavos(valorDinheiro);
-  const total = totalEmCentavos(getTotal());
-
-  if (
-    dinheiro === null ||
-    dinheiro <= 0n ||
-    dinheiro >= total
-  ) {
-    toast.error(
-      "Informe um valor em dinheiro maior que zero e menor que o total.",
-    );
-    return;
-  }
-
-  setShowCashModal(false);
-
-  navigate("/checkout", {
-    state: {
-      cart,
-      total: getTotal(),
-      paymentMethod: "Dinheiro",
-      valorPago: Number(valorDinheiro),
-      troco: 0,
-
-      pagamentosIniciais: [
-        {
-          id: "dinheiro-inicial",
-          forma: "DINHEIRO",
-          valor: textoMonetario(dinheiro),
-          recebido: textoMonetario(dinheiro),
-        },
-        {
-          id: "complemento-inicial",
-          forma: "PIX",
-          valor: textoMonetario(total - dinheiro),
-          recebido: "",
-        },
-      ],
-    },
-  });
-};
 
   const getTotal = () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -297,6 +230,7 @@ const handlePayment = (method: string) => {
           </div>
         </div>
         <TagIdentificadoraPDV />
+        <CaixaFinanceiro />
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 overflow-hidden">
@@ -650,15 +584,215 @@ const handlePayment = (method: string) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
 
-      {/* 🟢 Adicione o novo ModalCalculadoraTroco ao final do seu JSX */}
-      <ModalCalculadoraTroco
-        isOpen={showCashModal}
-        onClose={() => setShowCashModal(false)}
-        totalVenda={getTotal()}
-        onConfirm={handleConfirmCashPayment}
-        onAdicionarPagamento={handleAdicionarPagamentoDinheiro}
-      />
+function CaixaFinanceiro() {
+  const [sessao, setSessao] = useState<{ id: number; saldo_caixa: string } | null>(null);
+  const [carregado, setCarregado] = useState(false);
+  const [ocupado, setOcupado] = useState(true);
+  const [janelaAberta, setJanelaAberta] = useState(false);
+  const [valor, setValor] = useState("");
+  const [erroConsulta, setErroConsulta] = useState("");
+  const [erroFormulario, setErroFormulario] = useState("");
+  const [aberturaNoLogin, setAberturaNoLogin] = useState(false);
+  const [resumo, setResumo] = useState<{
+    esperado: string;
+    contado: string;
+    diferenca: string;
+  } | null>(null);
+
+  const consultar = useCallback(async () => {
+    setOcupado(true);
+    setErroConsulta("");
+
+    try {
+      const resultado = await caixaFinanceiroService.consultar();
+      setSessao(resultado.sessao);
+      setCarregado(true);
+
+      if (sessionStorage.getItem("@EncantoToys:avisarAberturaCaixa") === "1") {
+        sessionStorage.removeItem("@EncantoToys:avisarAberturaCaixa");
+
+        if (resultado.sessao === null) {
+          setAberturaNoLogin(true);
+          setJanelaAberta(true);
+        }
+      }      
+    } catch (erro) {
+      setErroConsulta(erro instanceof Error ? erro.message : "Erro ao consultar o caixa.");
+    } finally {
+      setOcupado(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void consultar();
+  }, [consultar]);
+
+  const rotulo = sessao ? "Dinheiro contado" : "Troco inicial";
+  const acao = sessao ? "Fechar caixa" : "Abrir caixa";
+  const reais = (quantia: string) => `R$ ${quantia.replace(".", ",")}`;
+
+  function abrirJanela() {
+    setValor("");
+    setErroFormulario("");
+    setResumo(null);
+    setJanelaAberta(true);
+    setAberturaNoLogin(false);
+  }
+
+  async function confirmar() {
+    if (ocupado) return;
+
+    const centavos = lerCentavos(valor);
+    if (centavos === null) {
+      setErroFormulario("Digite um valor válido, como 50,00.");
+      return;
+    }
+
+    const quantia = textoMonetario(centavos);
+    setOcupado(true);
+    setErroFormulario("");
+
+    try {
+      if (sessao) {
+        const resultado = await caixaFinanceiroService.fechar(sessao.id, quantia);
+        setResumo({
+          esperado: resultado.dinheiro_esperado,
+          contado: quantia,
+          diferenca: resultado.diferenca,
+        });
+        setSessao(null);
+      } else {
+        setSessao(await caixaFinanceiroService.abrir(quantia));
+        setJanelaAberta(false);
+      }
+    } catch (erro) {
+      setErroFormulario(erro instanceof Error ? erro.message : "Erro ao atualizar o caixa.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3">
+      {carregado ? (
+        <>
+          <span className="text-sm">
+            {sessao ? `Valor em caixa: ${reais(sessao.saldo_caixa)}` : "Caixa financeiro fechado"}
+          </span>
+          <Button type="button" size="sm" onClick={abrirJanela} disabled={ocupado}>
+            {acao}
+          </Button>
+          {resumo && (
+            <span role="status" className="text-sm text-gray-500">
+              Diferença: {reais(resumo.diferenca)}
+            </span>
+          )}          
+        </>
+      ) : (
+        <Button type="button" size="sm" onClick={consultar} disabled={ocupado}>
+          {ocupado ? "Consultando…" : "Consultar caixa"}
+        </Button>
+      )}
+
+      {erroConsulta && <span role="alert" className="text-sm">{erroConsulta}</span>}
+
+      <Dialog
+        open={janelaAberta}
+        onOpenChange={(aberta) => {
+          if (!ocupado) setJanelaAberta(aberta);
+        }}
+      >
+        <DialogContent
+          onInteractOutside={(evento) => {
+            if (aberturaNoLogin) evento.preventDefault();
+          }}
+          onEscapeKeyDown={(evento) => {
+            if (aberturaNoLogin) evento.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{resumo ? "Caixa fechado" : acao}</DialogTitle>
+            <DialogDescription>
+              {resumo
+                ? "Confira o resultado do fechamento."
+                : sessao
+                  ? "Conte o dinheiro da gaveta e informe o total."
+                  : "Informe o dinheiro colocado na gaveta para iniciar."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {resumo ? (
+            <>
+              <dl className="space-y-2 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt>Valor esperado</dt>
+                  <dd>{reais(resumo.esperado)}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>Valor contado</dt>
+                  <dd>{reais(resumo.contado)}</dd>
+                </div>
+                <div className="flex justify-between gap-4 font-semibold">
+                  <dt>Diferença</dt>
+                  <dd>{reais(resumo.diferenca)}</dd>
+                </div>
+              </dl>
+              <DialogFooter>
+                <Button type="button" onClick={() => setJanelaAberta(false)}>
+                  Concluir
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <form
+              className="space-y-4"
+              onSubmit={(evento) => {
+                evento.preventDefault();
+                void confirmar();
+              }}
+            >
+              <div className="space-y-2">
+                <label htmlFor="valor-caixa-financeiro" className="text-sm font-medium">
+                  {rotulo}
+                </label>
+                <Input
+                  id="valor-caixa-financeiro"
+                  inputMode="decimal"
+                  value={valor}
+                  onChange={(evento) => setValor(evento.target.value)}
+                  disabled={ocupado}
+                  placeholder="0,00"
+                  autoFocus
+                />
+              </div>
+
+              {erroFormulario && (
+                <p role="alert" className="text-sm text-red-700">{erroFormulario}</p>
+              )}
+
+              <DialogFooter>
+                {!aberturaNoLogin && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={ocupado}
+                    onClick={() => setJanelaAberta(false)}
+                  >
+                    Cancelar
+                  </Button>
+                )}
+                <Button type="submit" disabled={ocupado}>
+                  {ocupado ? "Salvando…" : sessao ? "Confirmar fechamento" : "Confirmar abertura"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

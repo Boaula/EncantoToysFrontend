@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { LogoEncantoAnimada } from "../components/LogoEncantoAnimada";
-import { authService, pdvService, Product, VendaHistorico } from "../../services/api";
+import { authService, pdvService, Product, VendaHistorico, caixaFinanceiroService } from "../../services/api";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import {
   Eye,
   EyeOff,
@@ -112,7 +113,23 @@ export function Home() {
         console.warn("Não foi possível iniciar o caixa automaticamente, mas o login ocorreu.", err);
       }
 
-      navigate("/pdv");
+      try {
+        const { sessao } = await caixaFinanceiroService.consultar();
+
+        if (sessao === null) {
+          toast.warning("Abra o caixa para começar", {
+            description: "Clique em Abrir caixa e informe o troco inicial.",
+            duration: 8000,
+          });
+        }
+      } catch (erro) {
+        console.warn("Não foi possível consultar o caixa financeiro no login.", erro);
+      }
+
+      sessionStorage.setItem("@EncantoToys:avisarAberturaCaixa", "1");      
+
+      navigate("/pdv");      
+
     } catch (err: any) {
       setError(err.message || "Erro ao conectar com o servidor.");
       setLoading(false);

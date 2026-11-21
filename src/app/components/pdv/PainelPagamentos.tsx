@@ -217,7 +217,37 @@ export function PainelPagamentos({
                     })
                   }
                 />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={valor === null || valor <= 0n}
+                    onClick={() => {
+                      if (valor !== null) {
+                        atualizar(pagamento.id, {
+                          recebido: textoMonetario(valor).replace(".", ","),
+                        });
+                      }
+                    }}
+                  >
+                    Valor exato
+                  </Button>
 
+                  {[10, 20, 50, 100, 200].map((cedula) => (
+                    <Button
+                      key={cedula}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => atualizar(pagamento.id, {
+                        recebido: `${cedula},00`,
+                      })}
+                    >
+                      R$ {cedula}
+                    </Button>
+                  ))}
+                </div>
                 <p className="text-sm">
                   Troco: <strong>{formatarCentavos(troco)}</strong>
                 </p>

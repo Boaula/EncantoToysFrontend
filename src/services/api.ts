@@ -1094,3 +1094,50 @@ export const relatorioVendasService = {
     };
   },
 };
+
+type SessaoCaixaFinanceiro = {
+  id: number;
+  saldo_caixa: string;
+};
+
+async function requisicaoCaixa<T>(rota: string, dados?: object): Promise<T> {
+  const token = localStorage.getItem("@EncantoToys:token") ?? "";
+  const resposta = await fetch(`${API_URL}/pdv/financeiro${rota}`, {
+    method: dados ? "POST" : "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: dados ? JSON.stringify(dados) : undefined,
+  });
+
+  const resultado = await resposta.json().catch(() => null);
+
+  if (!resposta.ok) {
+    throw new Error(
+      typeof resultado?.detail === "string"
+        ? resultado.detail
+        : `Falha ao acessar o caixa (${resposta.status}).`,
+    );
+  }
+
+  return resultado;
+}
+
+export const caixaFinanceiroService = {
+  consultar: () =>
+    requisicaoCaixa<{ sessao: SessaoCaixaFinanceiro | null }>("/atual"),
+
+  abrir: (valorInicial: string) =>
+    requisicaoCaixa<SessaoCaixaFinanceiro>("/abrir", {
+      valor_inicial: valorInicial,
+    }),
+
+  fechar: (sessaoId: number, dinheiroContado: string) =>
+    requisicaoCaixa<{
+      dinheiro_esperado: string;
+      diferenca: string;
+    }>(`/sessoes/${sessaoId}/fechar`, {
+      dinheiro_contado: dinheiroContado,
+    }),
+};

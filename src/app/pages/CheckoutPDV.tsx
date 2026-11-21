@@ -15,6 +15,7 @@ import { PainelPagamentos } from "../components/pdv/PainelPagamentos";
 import {
   normalizarFormaPagamento,
   prepararPagamentos,
+  totalEmCentavos,
   type PagamentoFormulario,
 } from "../../services/pagamentosVenda";
 import type { PagamentoVendaPayload } from "../../services/api";
@@ -26,6 +27,10 @@ export function CheckoutPDV() {
   // Dados recebidos via Navegação
   const stateData = location.state || {};
   const paymentMethod = stateData.paymentMethod || stateData.formaPagamento || "DINHEIRO";
+  const pagamentoEmDinheiro =
+    normalizarFormaPagamento(String(paymentMethod)) === "DINHEIRO";
+
+  const [ajustandoTotal, setAjustandoTotal] = useState(pagamentoEmDinheiro);  
   const operadorAtual = localStorage.getItem("@EncantoToys:username") || "Caixa 01";
   const valorPago = stateData.valorPago || 0;
   const troco = stateData.troco || 0;
@@ -97,6 +102,39 @@ const [pagamentos, setPagamentos] = useState<PagamentoFormulario[]>(
     setCpfCliente(value);
   };
 
+  const validarDocumentoCliente = () => {
+    setErroCpf("");
+    if (cpfCliente.trim() === "") return true;
+
+    const documento = cpfCliente.replace(/\D/g, "");
+
+    if (documento.length === 11 && !validarCPF(documento)) {
+      setErroCpf("CPF inválido. Verifique os números digitados.");
+      return false;
+    }
+
+    if (documento.length !== 11 && documento.length !== 14) {
+      setErroCpf("Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.");
+      return false;
+    }
+
+    return true;
+  };  
+
+  const continuarParaPagamento = () => {
+    if (!validarDocumentoCliente()) return;
+    try {
+      if (totalEmCentavos(venda.getTotalFinal()) === 0n) {
+        alert("O total da venda deve ser maior que zero.");
+        return;
+      }
+
+      setAjustandoTotal(false);
+    } catch (erro) {
+      alert(erro instanceof Error ? erro.message : "Confira o total da venda.");
+    }
+  };
+
 const handleFinalizarVenda = async () => {
   if (salvandoVenda || modalAberto || vendaIdReal !== null) return;
 
@@ -118,15 +156,9 @@ const handleFinalizarVenda = async () => {
     return;
   }
 
-    if (cpfCliente.trim() !== "") {
-      const docLimpo = cpfCliente.replace(/\D/g, "");
-      if (docLimpo.length === 11 && !validarCPF(docLimpo)) {
-        setErroCpf("CPF inválido. Verifique os números digitados.");
-        return;
-      } else if (docLimpo.length !== 11 && docLimpo.length !== 14) {
-        setErroCpf("Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.");
-        return;
-      }
+    if (!validarDocumentoCliente()) {
+      if (pagamentoEmDinheiro) setAjustandoTotal(true);
+      return;
     }
 
     setSalvandoVenda(true);
@@ -322,7 +354,7 @@ const handleFinalizarVenda = async () => {
             <span className="text-[11px] uppercase font-black text-amber-950 bg-amber-300/90 px-2.5 py-0.5 rounded-md inline-block">
               ★ ENCANTO TOYS
             </span>
-            <h1 className="text-xl font-black text-slate-900 mt-1">Confirmação de Venda</h1>
+            <h1 className="text-xl font-black text-slate-900 mt-1">{ajustandoTotal ? "Ajustar total da venda" : "Confirmação de Venda"}</h1>
           </div>
           <div className="text-right">
             <span className="text-xs font-black text-cyan-950 bg-white/90 px-3 py-1 rounded-full shadow-xs">
@@ -354,28 +386,43 @@ const handleFinalizarVenda = async () => {
           </div>
 
           {/* PAINEL DE DESCONTO E ACRÉSCIMO */}
-          <PainelDescontoAcrescimo
-            descontoVal={descontoVal}
-            descontoTipo={descontoTipo}
-            acrescimoVal={acrescimoVal}
-            acrescimoTipo={acrescimoTipo}
-            onDescontoChange={(val, tipo) => { setDescontoVal(val); setDescontoTipo(tipo); }}
-            onAcrescimoChange={(val, tipo) => { setAcrescimoVal(val); setAcrescimoTipo(tipo); }}
-          />
+          {(!pagamentoEmDinheiro || ajustandoTotal) && (
+            <PainelDescontoAcrescimo
+              descontoVal={descontoVal}
+              descontoTipo={descontoTipo}
+              acrescimoVal={acrescimoVal}
+              acrescimoTipo={acrescimoTipo}
+              onDescontoChange={(val, tipo) => {
+                setDescontoVal(val);
+                setDescontoTipo(tipo);
+              }}
+              onAcrescimoChange={(val, tipo) => {
+                setAcrescimoVal(val);
+                setAcrescimoTipo(tipo);
+              }}
+            />
+          )}
 
-          <PainelPagamentos
-            total={venda.getTotalFinal()}
-            pagamentos={pagamentos}
-            onChange={setPagamentos}
-            disabled={
-              salvandoVenda ||
-              modalAberto ||
-              vendaIdReal !== null
-            }
-          />
+          {!ajustandoTotal && (
+            <>
+              <PainelPagamentos
+                total={venda.getTotalFinal()}
+                pagamentos={pagamentos}
+                onChange={setPagamentos}
+                disabled={salvandoVenda || modalAberto || vendaIdReal !== null}
+              />
 
-          {/* CAMPO DE CPF / CNPJ */}
-          <CampoCpf value={cpfCliente} erro={erroCpf} onChange={handleCpfChange} />
+              <CampoCpf value={cpfCliente} erro={erroCpf} onChange={handleCpfChange} />
+            </>
+          )}
+
+          {(!pagamentoEmDinheiro || ajustandoTotal) && (
+            <CampoCpf
+              value={cpfCliente}
+              erro={erroCpf}
+              onChange={handleCpfChange}
+            />
+          )}
 
           {/* LISTA DE ITENS */}
           <div className="bg-white rounded-2xl p-4 shadow-lg space-y-2">
@@ -396,11 +443,25 @@ const handleFinalizarVenda = async () => {
 
           {/* BOTÕES DE AÇÃO */}
           <div className="pt-2 flex gap-3">
-            <Button onClick={() => navigate("/pdv")} disabled={salvandoVenda} className="w-1/3 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs rounded-xl">
+            <Button 
+              onClick={() => {
+                if (pagamentoEmDinheiro && !ajustandoTotal) {
+                  setAjustandoTotal(true);
+                } else {
+                  navigate("/pdv");
+                }
+              }}
+              disabled={salvandoVenda} className="w-1/3 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs rounded-xl">
               ← Voltar
             </Button>
-            <Button onClick={handleFinalizarVenda} disabled={salvandoVenda || venda.getItens().length === 0} className="w-2/3 bg-cyan-300 hover:bg-cyan-200 text-slate-950 font-black text-sm uppercase rounded-xl">
-              {salvandoVenda ? "⏳ Gravando Venda..." : "✓ Concluir e Gravar Venda"}
+            <Button 
+              onClick={ajustandoTotal ? continuarParaPagamento : handleFinalizarVenda} 
+              disabled={salvandoVenda || venda.getItens().length === 0} className="w-2/3 bg-cyan-300 hover:bg-cyan-200 text-slate-950 font-black text-sm uppercase rounded-xl">
+              {salvandoVenda
+                ? "⏳ Gravando Venda..."
+                : ajustandoTotal
+                  ? "Continuar para o pagamento"
+                  : "✓ Concluir e Gravar Venda"}
             </Button>
           </div>
         </div>
